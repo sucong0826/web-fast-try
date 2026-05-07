@@ -18,9 +18,15 @@ export function JoinScreen({
 }) {
   const [displayName, setDisplayName] = useState("Guest");
   const [roomId, setRoomId] = useState("");
-  const [signalingUrl, setSignalingUrl] = useState(
-    process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:8787"
-  );
+  const [signalingUrl, setSignalingUrl] = useState(() => {
+    if (process.env.NEXT_PUBLIC_SIGNALING_URL) {
+      return process.env.NEXT_PUBLIC_SIGNALING_URL;
+    }
+    if (typeof window !== "undefined") {
+      return `ws://${window.location.hostname}:8787`;
+    }
+    return "ws://localhost:8787";
+  });
   const [iceServersInput, setIceServersInput] = useState("");
 
   return (
