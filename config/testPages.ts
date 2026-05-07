@@ -95,6 +95,14 @@ export const testPages: TestPage[] = [
     icon: "Video",
     path: "/test/vb-test",
     category: "Media"
+  },
+  {
+    id: "webrtc-meeting",
+    title: "WebRTC Meeting",
+    description: "Two-person P2P meeting with signaling, media, chat, and stats",
+    icon: "Users",
+    path: "/test/webrtc-meeting",
+    category: "Media"
   }
 ];
 

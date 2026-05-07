@@ -121,15 +121,15 @@ export class PeerConnectionEngine {
     return true;
   }
 
-  async setMicrophoneTrack(track: MediaStreamTrack): Promise<void> {
+  async setMicrophoneTrack(track: MediaStreamTrack | null): Promise<void> {
     await this.microphoneSender?.replaceTrack(track);
   }
 
-  async setCameraTrack(track: MediaStreamTrack): Promise<void> {
+  async setCameraTrack(track: MediaStreamTrack | null): Promise<void> {
     await this.cameraSender?.replaceTrack(track);
   }
 
-  async setScreenTrack(track: MediaStreamTrack): Promise<void> {
+  async setScreenTrack(track: MediaStreamTrack | null): Promise<void> {
     await this.screenSender?.replaceTrack(track);
   }
 

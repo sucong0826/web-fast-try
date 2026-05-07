@@ -1,16 +1,17 @@
 import Link from "next/link";
 import { testPages } from "@/config/testPages";
-import { 
-  Video, 
-  Mic, 
-  Wifi, 
-  Info, 
-  Monitor, 
+import {
+  Video,
+  Mic,
+  Wifi,
+  Info,
+  Monitor,
   Camera,
   TestTube,
   Bug,
   Cpu,
-  Zap
+  Zap,
+  Users
 } from "lucide-react";
 
 const iconMap: Record<string, React.ComponentType<any>> = {
@@ -24,6 +25,7 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   Bug,
   Cpu,
   Zap,
+  Users,
 };
 
 export default function Home() {

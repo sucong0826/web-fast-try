@@ -45,7 +45,7 @@ export function useMeetingController() {
   }), [state.roomId]);
 
   const ensurePeer = useCallback((role: "caller" | "answerer", iceInput?: string) => {
-    if (peerRef.current?.getPeerConnection()) return peerRef.current;
+    if (peerRef.current) return peerRef.current;
     const engine = new PeerConnectionEngine({
       role,
       iceServers: iceInput ? parseIceServers(iceInput) : getInitialIceServers(),
@@ -57,6 +57,7 @@ export function useMeetingController() {
         } as SignalMessage);
       },
       onIceCandidate: (candidate) => {
+        if (!candidate) return; // null signals end-of-candidates; nothing to send
         sendSignal({ ...createMessageBase(), type: "ice-candidate", candidate });
       },
       onRemoteTrack: (event) => {
@@ -70,7 +71,7 @@ export function useMeetingController() {
         });
       },
       onConnectionState: (connectionState) => {
-        dispatch({ type: "connection-state-changed", ...connectionState });
+        dispatch({ type: "connection-state-changed", peerConnectionState: connectionState, iceConnectionState: "new" });
       },
       onDataMessage: (raw) => {
         try {
@@ -80,8 +81,8 @@ export function useMeetingController() {
           // ignore malformed chat messages
         }
       },
-      onLog: (message, data) => {
-        loggerRef.current.append("peer", message, data);
+      onLog: (message) => {
+        loggerRef.current.append("peer", message);
         publishLogs();
       },
     });
@@ -110,7 +111,6 @@ export function useMeetingController() {
     if (message.type === "peer-joined") {
       dispatch({ type: "peer-joined", peer: message.peer });
       const engine = ensurePeer(state.localParticipant?.role || "caller");
-      if (state.localParticipant?.role === "caller") await engine.negotiate();
       return;
     }
 
@@ -128,7 +128,7 @@ export function useMeetingController() {
     }
 
     if (message.type === "ice-candidate") {
-      await peerRef.current?.addIceCandidate(message.candidate);
+      await peerRef.current?.applyIceCandidate(message.candidate);
       return;
     }
 
