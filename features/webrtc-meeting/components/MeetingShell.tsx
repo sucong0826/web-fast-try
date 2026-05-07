@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { JoinScreen } from "./JoinScreen";
 import { StatusBar } from "./StatusBar";
 import { VideoStage } from "./VideoStage";
@@ -12,15 +13,11 @@ import styles from "../styles.module.css";
 export function MeetingShell() {
   const controller = useMeetingController();
   const { state } = controller;
+  const [showDevices, setShowDevices] = useState(false);
 
   if (state.lifecycle === "idle" || state.lifecycle === "left" || state.lifecycle === "failed") {
     return <JoinScreen error={state.error} onJoin={controller.join} />;
   }
-
-  const onCameraChange = async (deviceId: string) => {
-    controller.state.localMedia.cameras; // type check
-    // dispatch handled inside controller via refreshDevices
-  };
 
   return (
     <div className={styles.meetingRoot}>
@@ -29,11 +26,19 @@ export function MeetingShell() {
         <VideoStage state={state} />
         <SidePanel state={state} onSendChat={controller.sendChat} />
       </main>
+      {showDevices && (
+        <DeviceMenu
+          state={state}
+          onCameraChange={controller.changeCamera}
+          onMicrophoneChange={controller.changeMicrophone}
+        />
+      )}
       <ControlBar
         state={state}
         onToggleMic={controller.toggleMicrophone}
         onToggleCamera={controller.toggleCamera}
         onToggleShare={controller.toggleScreenShare}
+        onToggleDevices={() => setShowDevices((prev) => !prev)}
         onLeave={controller.leave}
       />
     </div>

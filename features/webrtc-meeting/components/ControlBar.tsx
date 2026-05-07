@@ -1,4 +1,4 @@
-import { Mic, MicOff, MonitorUp, PhoneOff, Radio, Video, VideoOff } from "lucide-react";
+import { Mic, MicOff, MonitorUp, PhoneOff, Radio, Settings, Video, VideoOff } from "lucide-react";
 import type { MeetingState } from "../types";
 import styles from "../styles.module.css";
 
@@ -7,12 +7,14 @@ export function ControlBar({
   onToggleMic,
   onToggleCamera,
   onToggleShare,
+  onToggleDevices,
   onLeave,
 }: {
   state: MeetingState;
   onToggleMic: () => void;
   onToggleCamera: () => void;
   onToggleShare: () => void;
+  onToggleDevices: () => void;
   onLeave: () => void;
 }) {
   return (
@@ -25,6 +27,9 @@ export function ControlBar({
       </button>
       <button className={styles.roundButton} onClick={onToggleShare} title="Share screen">
         <MonitorUp />
+      </button>
+      <button className={styles.roundButton} onClick={onToggleDevices} title="Device settings">
+        <Settings />
       </button>
       <button className={styles.roundButton} title="Recording reserved for future phase">
         <Radio />

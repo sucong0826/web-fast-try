@@ -263,6 +263,23 @@ export function useMeetingController() {
     });
   }, [dispatch]);
 
+  const changeCamera = useCallback(async (deviceId: string) => {
+    dispatch({ type: "local-media", media: { selectedCameraId: deviceId } });
+    if (state.localMedia.cameraOn) {
+      const track = await mediaRef.current.startCamera(deviceId || undefined);
+      dispatch({ type: "streams-updated", streams: { localCamera: createStreamFromTrack(track) } });
+      await peerRef.current?.setCameraTrack(track);
+    }
+  }, [dispatch, state.localMedia.cameraOn]);
+
+  const changeMicrophone = useCallback(async (deviceId: string) => {
+    dispatch({ type: "local-media", media: { selectedMicrophoneId: deviceId } });
+    if (state.localMedia.micOn) {
+      const track = await mediaRef.current.startMicrophone(deviceId || undefined);
+      await peerRef.current?.setMicrophoneTrack(track);
+    }
+  }, [dispatch, state.localMedia.micOn]);
+
   const leave = useCallback(() => {
     mediaRef.current.stopAll();
     statsRef.current?.stop();
@@ -280,5 +297,7 @@ export function useMeetingController() {
     toggleScreenShare,
     sendChat,
     refreshDevices,
-  }), [join, leave, sendChat, state, toggleCamera, toggleMicrophone, toggleScreenShare, refreshDevices]);
+    changeCamera,
+    changeMicrophone,
+  }), [join, leave, sendChat, state, toggleCamera, toggleMicrophone, toggleScreenShare, refreshDevices, changeCamera, changeMicrophone]);
 }
