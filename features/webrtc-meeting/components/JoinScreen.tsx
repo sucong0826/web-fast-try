@@ -23,11 +23,10 @@ export function JoinScreen({
       return process.env.NEXT_PUBLIC_SIGNALING_URL;
     }
     if (typeof window !== "undefined") {
-      // Use explicit 127.0.0.1 for localhost to avoid Edge resolving it as IPv6 (::1)
-      const host = window.location.hostname === "localhost" ? "127.0.0.1" : window.location.hostname;
-      return `ws://${host}:8787`;
+      // Mirror the page hostname so browsers don't treat it as cross-site (avoids PNA check)
+      return `ws://${window.location.hostname}:8787`;
     }
-    return "ws://127.0.0.1:8787";
+    return "ws://localhost:8787";
   });
   const [iceServersInput, setIceServersInput] = useState("");
 

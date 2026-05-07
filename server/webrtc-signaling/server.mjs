@@ -5,6 +5,14 @@ const port = Number(process.env.WEBRTC_SIGNALING_PORT || 8787);
 const roomStore = createRoomStore();
 const server = new WebSocketServer({ port });
 
+// Add Private Network Access header so Safari/Edge allow cross-site WebSocket
+// connections to local addresses (required by the PNA spec when Sec-Fetch-Site: cross-site).
+server.on("headers", (headers, req) => {
+  headers.push("Access-Control-Allow-Private-Network: true");
+  const origin = req.headers.origin;
+  if (origin) headers.push(`Access-Control-Allow-Origin: ${origin}`);
+});
+
 function createMessage(type, payload) {
   return {
     type,
