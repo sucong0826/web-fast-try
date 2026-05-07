@@ -1,0 +1,331 @@
+.joinScreen {
+  min-height: 88vh;
+  display: grid;
+  place-items: center;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.joinPanel {
+  width: min(560px, calc(100vw - 32px));
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.96);
+}
+
+.brandRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brandRow h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.brandRow p {
+  margin: 4px 0 0;
+  color: #94a3b8;
+}
+
+.joinPanel label {
+  display: grid;
+  gap: 6px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.joinPanel input,
+.joinPanel textarea {
+  width: 100%;
+  border: 1px solid #334155;
+  background: #020617;
+  color: #f8fafc;
+  padding: 10px 12px;
+}
+
+.joinPanel textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.primaryButton,
+.leaveButton,
+.roundButton,
+.iconButton,
+.copyButton,
+.tabs button,
+.chatForm button {
+  border: 0;
+  cursor: pointer;
+}
+
+.primaryButton {
+  height: 44px;
+  background: #2563eb;
+  color: white;
+  font-weight: 700;
+}
+
+.errorBanner {
+  border: 1px solid #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  padding: 10px 12px;
+}
+
+.meetingRoot {
+  min-height: 88vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.statusBar {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.iconButton {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  background: transparent;
+  color: #cbd5e1;
+}
+
+.meetingMain {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.videoStage {
+  min-width: 0;
+  min-height: 0;
+  padding: 18px;
+}
+
+.gridLayout {
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.shareLayout {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 14px;
+}
+
+.sideTiles {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 14px;
+}
+
+.mediaTile {
+  position: relative;
+  min-height: 180px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #020617;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.mediaTile video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.mediaEmpty {
+  color: #94a3b8;
+}
+
+.tileLabel {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #f8fafc;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.sidePanel {
+  min-width: 0;
+  border-left: 1px solid rgba(148, 163, 184, 0.2);
+  background: #111827;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.tabs button {
+  height: 40px;
+  background: transparent;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  text-transform: capitalize;
+}
+
+.tabs .activeTab {
+  color: #f8fafc;
+  border-bottom-color: #2563eb;
+}
+
+.panelBody {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+}
+
+.copyButton {
+  padding: 6px 12px;
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 12px;
+  margin: 8px;
+  align-self: start;
+}
+
+.chatList {
+  overflow: auto;
+  padding: 12px;
+}
+
+.chatMessage {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.chatMessage p {
+  margin: 4px 0 0;
+  color: #cbd5e1;
+}
+
+.chatForm {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.chatForm input {
+  min-width: 0;
+  background: #020617;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  padding: 9px 10px;
+}
+
+.chatForm button {
+  background: #2563eb;
+  color: white;
+  padding: 0 14px;
+}
+
+.preBlock {
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.controlBar {
+  min-height: 68px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.96);
+}
+
+.roundButton {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.leaveButton {
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  background: #dc2626;
+  color: white;
+  font-weight: 700;
+}
+
+.emptyState {
+  display: grid;
+  place-items: center;
+  color: #94a3b8;
+}
+
+.deviceMenu {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  background: #1e293b;
+}
+
+.deviceMenu label {
+  display: grid;
+  gap: 4px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.deviceMenu select {
+  background: #020617;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  padding: 6px 8px;
+}
+
+@media (max-width: 960px) {
+  .meetingMain {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(360px, 1fr) 320px;
+  }
+
+  .sidePanel {
+    border-left: 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+  }
+
+  .gridLayout,
+  .shareLayout {
+    grid-template-columns: 1fr;
+  }
+}
