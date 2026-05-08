@@ -155,6 +155,10 @@ export function useMeetingController() {
     return engine;
   }, [createMessageBase, dispatch, publishLogs, sendSignal]);
 
+  // Keep a ref to the latest handleSignal so the SignalingClient's onMessage closure
+  // always calls the current version rather than a stale one captured at join() time.
+  const handleSignalRef = useRef<((message: SignalMessage) => Promise<void>) | null>(null);
+
   const handleSignal = useCallback(async (message: SignalMessage) => {
     loggerRef.current.append("signaling", `recv ${message.type}`, message);
     publishLogs();
@@ -236,26 +240,34 @@ export function useMeetingController() {
     }
   }, [dispatch, ensurePeer, publishLogs, state.displayName, state.localParticipant?.role]);
 
+  handleSignalRef.current = handleSignal;
+
   const join = useCallback(async (input: {
     roomId: string;
     displayName: string;
     signalingUrl: string;
     iceServersInput?: string;
   }) => {
+    // Clean up any leftover state from a previous session before starting fresh.
+    peerRef.current?.close();
+    peerRef.current = null;
+    signalingRef.current?.close();
+    signalingRef.current = null;
+
     const roomId = normalizeRoomId(input.roomId);
     const displayName = input.displayName.trim() || "Guest";
     dispatch({ type: "set-joining", roomId, participantId: participantIdRef.current, displayName });
 
     const signaling = new SignalingClient({
       url: input.signalingUrl,
-      onMessage: (message) => void handleSignal(message),
+      onMessage: (message) => void handleSignalRef.current?.(message),
       onStateChange: (websocketState) => dispatch({ type: "websocket-state", websocketState }),
       onError: (error) => dispatch({ type: "error", error }),
     });
     signalingRef.current = signaling;
     await signaling.connect();
     signaling.join(createJoinRoomMessage({ roomId, participantId: participantIdRef.current, displayName }));
-  }, [dispatch, handleSignal]);
+  }, [dispatch]);
 
   const startCamera = useCallback(async () => {
     const track = await mediaRef.current.startCamera(state.localMedia.selectedCameraId || undefined);

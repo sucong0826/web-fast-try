@@ -245,5 +245,9 @@ export class PeerConnectionEngine {
     this.pc?.close();
     this.pc = null;
     this.dataChannel = null;
+    this.microphoneSender = null;
+    this.cameraSender = null;
+    this.screenSender = null;
+    this.screenTransceiver = null;
   }
 }
