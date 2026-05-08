@@ -26,6 +26,11 @@ export function useMeetingController() {
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<PeerConnectionEngine | null>(null);
   const statsRef = useRef<StatsCollector | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const localMediaRef = useRef(state.localMedia);
+  localMediaRef.current = state.localMedia;
+  const roomIdRef = useRef(state.roomId);
+  roomIdRef.current = state.roomId;
 
   const publishLogs = useCallback(() => {
     dispatch({ type: "logs-updated", logs: loggerRef.current.getEvents() });
@@ -34,18 +39,28 @@ export function useMeetingController() {
   const sendSignal = useCallback((message: SignalMessage) => {
     loggerRef.current.append("signaling", `send ${message.type}`, message);
     publishLogs();
-    signalingRef.current?.send(message);
+    try {
+      signalingRef.current?.send(message);
+    } catch (err) {
+      loggerRef.current.append("signaling", `send failed: ${message.type}`, err);
+      publishLogs();
+    }
   }, [publishLogs]);
 
   const createMessageBase = useCallback(() => ({
-    roomId: state.roomId,
+    roomId: roomIdRef.current,
     participantId: participantIdRef.current,
     messageId: createClientMessageId(),
     sentAt: Date.now(),
-  }), [state.roomId]);
+  }), []);
 
   const ensurePeer = useCallback((role: "caller" | "answerer", iceInput?: string) => {
-    if (peerRef.current) return peerRef.current;
+    if (peerRef.current) {
+      loggerRef.current.append("peer", `ensurePeer(${role}) — reusing existing engine`);
+      publishLogs();
+      return peerRef.current;
+    }
+    loggerRef.current.append("peer", `ensurePeer(${role}) — creating new PeerConnectionEngine`);
     const engine = new PeerConnectionEngine({
       role,
       iceServers: iceInput ? parseIceServers(iceInput) : getInitialIceServers(),
@@ -60,15 +75,44 @@ export function useMeetingController() {
         if (!candidate) return; // null signals end-of-candidates; nothing to send
         sendSignal({ ...createMessageBase(), type: "ice-candidate", candidate });
       },
-      onRemoteTrack: (event) => {
-        loggerRef.current.append("peer", "remote track", { kind: event.track.kind, mid: event.transceiver.mid });
+      onRemoteTrack: (event, type) => {
+        const mid = event.transceiver.mid;
+        loggerRef.current.append("peer", `remote track type=${type} mid=${mid}`);
         publishLogs();
         const stream = event.streams[0] || createStreamFromTrack(event.track);
-        const mid = event.transceiver.mid;
         dispatch({
           type: "streams-updated",
-          streams: mid === "2" ? { remoteScreen: stream } : { remoteCamera: stream },
+          streams: type === "screen" ? { remoteScreen: stream } : { remoteCamera: stream },
         });
+      },
+      onRemoteAudioStream: (stream) => {
+        loggerRef.current.append("peer", "remote audio stream — attaching to audio element");
+        publishLogs();
+        if (!remoteAudioRef.current) {
+          remoteAudioRef.current = new Audio();
+          remoteAudioRef.current.autoplay = true;
+        }
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.play().catch((e) => {
+          loggerRef.current.append("peer", `remote audio play() failed: ${e}`);
+          publishLogs();
+        });
+      },
+      onSendersReady: () => {
+        const { microphoneTrack, cameraTrack, screenTrack } = mediaRef.current.getSnapshot();
+        if (microphoneTrack) {
+          loggerRef.current.append("peer", "seeding microphoneTrack (answerer)");
+          void engine.setMicrophoneTrack(microphoneTrack);
+        }
+        if (cameraTrack) {
+          loggerRef.current.append("peer", "seeding cameraTrack (answerer)");
+          void engine.setCameraTrack(cameraTrack);
+        }
+        if (screenTrack) {
+          loggerRef.current.append("peer", "seeding screenTrack (answerer)");
+          void engine.setScreenTrack(screenTrack);
+        }
+        publishLogs();
       },
       onConnectionState: (connectionState) => {
         dispatch({ type: "connection-state-changed", peerConnectionState: connectionState, iceConnectionState: "new" });
@@ -88,14 +132,37 @@ export function useMeetingController() {
     });
     engine.create();
     peerRef.current = engine;
+
+    // Caller senders are created in create() so tracks can be seeded immediately.
+    // Answerer senders don't exist until initAnswererSenders() runs — seeding happens in onSendersReady.
+    if (role === "caller") {
+      const { microphoneTrack, cameraTrack, screenTrack } = mediaRef.current.getSnapshot();
+      if (microphoneTrack) {
+        loggerRef.current.append("peer", "seeding existing microphoneTrack into new engine");
+        void engine.setMicrophoneTrack(microphoneTrack);
+      }
+      if (cameraTrack) {
+        loggerRef.current.append("peer", "seeding existing cameraTrack into new engine");
+        void engine.setCameraTrack(cameraTrack);
+      }
+      if (screenTrack) {
+        loggerRef.current.append("peer", "seeding existing screenTrack into new engine");
+        void engine.setScreenTrack(screenTrack);
+      }
+      publishLogs();
+    }
+
     return engine;
   }, [createMessageBase, dispatch, publishLogs, sendSignal]);
 
   const handleSignal = useCallback(async (message: SignalMessage) => {
-    loggerRef.current.append("signaling", `receive ${message.type}`, message);
+    loggerRef.current.append("signaling", `recv ${message.type}`, message);
     publishLogs();
 
     if (message.type === "room-snapshot") {
+      loggerRef.current.append("signaling",
+        `joined as ${message.self.role}, peer=${message.peer?.participantId?.slice(0, 8) ?? "none"}`);
+      publishLogs();
       dispatch({
         type: "joined-room",
         roomId: message.roomId,
@@ -104,13 +171,30 @@ export function useMeetingController() {
         role: message.self.role,
         peer: message.peer,
       });
-      if (message.peer) ensurePeer(message.self.role);
+      if (message.peer) {
+        loggerRef.current.append("signaling", `peer already in room — ensurePeer(${message.self.role})`);
+        publishLogs();
+        ensurePeer(message.self.role);
+      }
       return;
     }
 
     if (message.type === "peer-joined") {
+      const myRole = state.localParticipant?.role || "caller";
+      loggerRef.current.append("signaling",
+        `peer-joined: ${message.peer.participantId.slice(0, 8)} — my role=${myRole}, sending media-state`);
+      publishLogs();
       dispatch({ type: "peer-joined", peer: message.peer });
-      const engine = ensurePeer(state.localParticipant?.role || "caller");
+      ensurePeer(myRole);
+      sendSignal({
+        ...createMessageBase(),
+        type: "media-state",
+        media: {
+          micOn: localMediaRef.current.micOn,
+          cameraOn: localMediaRef.current.cameraOn,
+          screenSharing: localMediaRef.current.screenSharing,
+        },
+      });
       return;
     }
 
@@ -137,8 +221,18 @@ export function useMeetingController() {
       return;
     }
 
-    if (message.type === "room-full" || message.type === "error") {
+    if (message.type === "room-full") {
       dispatch({ type: "error", error: message.message });
+      return;
+    }
+
+    if (message.type === "error") {
+      if (message.code === "peer-not-available") {
+        loggerRef.current.append("signaling", `non-fatal: ${message.message}`);
+        publishLogs();
+      } else {
+        dispatch({ type: "error", error: message.message });
+      }
     }
   }, [dispatch, ensurePeer, publishLogs, state.displayName, state.localParticipant?.role]);
 
@@ -174,20 +268,24 @@ export function useMeetingController() {
     if (state.localMedia.cameraOn) {
       mediaRef.current.setCameraEnabled(false);
       dispatch({ type: "local-media", media: { cameraOn: false } });
-      sendSignal({
-        ...createMessageBase(),
-        type: "media-state",
-        media: { micOn: state.localMedia.micOn, cameraOn: false, screenSharing: state.localMedia.screenSharing },
-      });
+      if (state.remoteParticipant) {
+        sendSignal({
+          ...createMessageBase(),
+          type: "media-state",
+          media: { micOn: state.localMedia.micOn, cameraOn: false, screenSharing: state.localMedia.screenSharing },
+        });
+      }
       return;
     }
     await startCamera();
-    sendSignal({
-      ...createMessageBase(),
-      type: "media-state",
-      media: { micOn: state.localMedia.micOn, cameraOn: true, screenSharing: state.localMedia.screenSharing },
-    });
-  }, [dispatch, startCamera, state.localMedia.cameraOn, state.localMedia.micOn, state.localMedia.screenSharing, sendSignal, createMessageBase]);
+    if (state.remoteParticipant) {
+      sendSignal({
+        ...createMessageBase(),
+        type: "media-state",
+        media: { micOn: state.localMedia.micOn, cameraOn: true, screenSharing: state.localMedia.screenSharing },
+      });
+    }
+  }, [dispatch, startCamera, state.localMedia.cameraOn, state.localMedia.micOn, state.localMedia.screenSharing, state.remoteParticipant, sendSignal, createMessageBase]);
 
   const startMicrophone = useCallback(async () => {
     const track = await mediaRef.current.startMicrophone(state.localMedia.selectedMicrophoneId || undefined);
@@ -199,45 +297,60 @@ export function useMeetingController() {
     if (state.localMedia.micOn) {
       mediaRef.current.setMicrophoneEnabled(false);
       dispatch({ type: "local-media", media: { micOn: false } });
-      sendSignal({
-        ...createMessageBase(),
-        type: "media-state",
-        media: { micOn: false, cameraOn: state.localMedia.cameraOn, screenSharing: state.localMedia.screenSharing },
-      });
+      if (state.remoteParticipant) {
+        sendSignal({
+          ...createMessageBase(),
+          type: "media-state",
+          media: { micOn: false, cameraOn: state.localMedia.cameraOn, screenSharing: state.localMedia.screenSharing },
+        });
+      }
       return;
     }
     await startMicrophone();
-    sendSignal({
-      ...createMessageBase(),
-      type: "media-state",
-      media: { micOn: true, cameraOn: state.localMedia.cameraOn, screenSharing: state.localMedia.screenSharing },
-    });
-  }, [dispatch, startMicrophone, state.localMedia.micOn, state.localMedia.cameraOn, state.localMedia.screenSharing, sendSignal, createMessageBase]);
+    if (state.remoteParticipant) {
+      sendSignal({
+        ...createMessageBase(),
+        type: "media-state",
+        media: { micOn: true, cameraOn: state.localMedia.cameraOn, screenSharing: state.localMedia.screenSharing },
+      });
+    }
+  }, [dispatch, startMicrophone, state.localMedia.micOn, state.localMedia.cameraOn, state.localMedia.screenSharing, state.remoteParticipant, sendSignal, createMessageBase]);
 
   const toggleScreenShare = useCallback(async () => {
     if (state.localMedia.screenSharing) {
       mediaRef.current.stopScreenShare();
       await peerRef.current?.setScreenTrack(null);
       dispatch({ type: "local-media", media: { screenSharing: false } });
-      sendSignal({
-        ...createMessageBase(),
-        type: "media-state",
-        media: { micOn: state.localMedia.micOn, cameraOn: state.localMedia.cameraOn, screenSharing: false },
-      });
+      if (state.remoteParticipant) {
+        sendSignal({
+          ...createMessageBase(),
+          type: "media-state",
+          media: { micOn: state.localMedia.micOn, cameraOn: state.localMedia.cameraOn, screenSharing: false },
+        });
+      }
       return;
     }
     const track = await mediaRef.current.startScreenShare(() => {
+      // Fired when the user clicks "Stop sharing" in the browser's own UI.
+      // Must mirror the same cleanup as the explicit stop path in toggleScreenShare.
       void peerRef.current?.setScreenTrack(null);
       dispatch({ type: "local-media", media: { screenSharing: false } });
+      sendSignal({
+        ...createMessageBase(),
+        type: "media-state",
+        media: { micOn: localMediaRef.current.micOn, cameraOn: localMediaRef.current.cameraOn, screenSharing: false },
+      });
     });
     await peerRef.current?.setScreenTrack(track);
     dispatch({ type: "local-media", media: { screenSharing: true } });
-    sendSignal({
-      ...createMessageBase(),
-      type: "media-state",
-      media: { micOn: state.localMedia.micOn, cameraOn: state.localMedia.cameraOn, screenSharing: true },
-    });
-  }, [dispatch, state.localMedia.screenSharing, state.localMedia.micOn, state.localMedia.cameraOn, sendSignal, createMessageBase]);
+    if (state.remoteParticipant) {
+      sendSignal({
+        ...createMessageBase(),
+        type: "media-state",
+        media: { micOn: state.localMedia.micOn, cameraOn: state.localMedia.cameraOn, screenSharing: true },
+      });
+    }
+  }, [dispatch, state.localMedia.screenSharing, state.localMedia.micOn, state.localMedia.cameraOn, state.remoteParticipant, sendSignal, createMessageBase]);
 
   const sendChat = useCallback((body: string) => {
     const entry = {
@@ -284,6 +397,10 @@ export function useMeetingController() {
     mediaRef.current.stopAll();
     statsRef.current?.stop();
     peerRef.current?.close();
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+      remoteAudioRef.current = null;
+    }
     signalingRef.current?.close();
     dispatch({ type: "left" });
   }, [dispatch]);

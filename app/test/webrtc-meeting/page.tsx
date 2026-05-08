@@ -9,7 +9,7 @@ const EmbeddedWebRtcMeetingApp = dynamic(
 
 export default function WebRtcMeetingPage() {
   return (
-    <div className="min-h-[88vh] overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+    <div className="min-h-[88vh] overflow-hidden rounded-2xl border border-[#ede9f8] dark:border-white/[0.06] bg-white dark:bg-[#0e0e12]">
       <EmbeddedWebRtcMeetingApp />
     </div>
   );

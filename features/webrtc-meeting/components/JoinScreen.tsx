@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Video } from "lucide-react";
+import { ChevronDown, ChevronUp, Video } from "lucide-react";
 import styles from "../styles.module.css";
 
 export function JoinScreen({
@@ -23,49 +23,83 @@ export function JoinScreen({
       return process.env.NEXT_PUBLIC_SIGNALING_URL;
     }
     if (typeof window !== "undefined") {
-      // Mirror the page hostname so browsers don't treat it as cross-site (avoids PNA check)
       return `ws://${window.location.hostname}:8787`;
     }
     return "ws://localhost:8787";
   });
   const [iceServersInput, setIceServersInput] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   return (
     <section className={styles.joinScreen}>
-      <div className={styles.joinPanel}>
-        <div className={styles.brandRow}>
-          <Video size={28} />
-          <div>
+      <div className={styles.joinCard}>
+        <div className={styles.joinBrand}>
+          <div className={styles.joinBrandIcon}>
+            <Video size={22} />
+          </div>
+          <div className={styles.joinBrandText}>
             <h1>WebRTC Meeting</h1>
-            <p>Two-person peer-to-peer meeting prototype</p>
+            <p>Peer-to-peer video conference</p>
           </div>
         </div>
+
         {error && <div className={styles.errorBanner}>{error}</div>}
-        <label>
-          Display name
-          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-        </label>
-        <label>
-          Room ID
-          <input value={roomId} placeholder="demo-room" onChange={(event) => setRoomId(event.target.value)} />
-        </label>
-        <label>
-          Signaling URL
-          <input value={signalingUrl} onChange={(event) => setSignalingUrl(event.target.value)} />
-        </label>
-        <label>
-          ICE servers JSON
-          <textarea
-            value={iceServersInput}
-            placeholder='[{"urls":"stun:stun.l.google.com:19302"}]'
-            onChange={(event) => setIceServersInput(event.target.value)}
-          />
-        </label>
+
+        <div className={styles.joinFields}>
+          <label className={styles.joinLabel}>
+            Display name
+            <input
+              className={styles.joinInput}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </label>
+          <label className={styles.joinLabel}>
+            Room ID
+            <input
+              className={styles.joinInput}
+              value={roomId}
+              placeholder="my-meeting-room"
+              onChange={(e) => setRoomId(e.target.value)}
+            />
+          </label>
+
+          <button
+            className={styles.advancedToggle}
+            onClick={() => setShowAdvanced((prev) => !prev)}
+          >
+            {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            Advanced settings
+          </button>
+
+          {showAdvanced && (
+            <>
+              <label className={styles.joinLabel}>
+                Signaling URL
+                <input
+                  className={styles.joinInput}
+                  value={signalingUrl}
+                  onChange={(e) => setSignalingUrl(e.target.value)}
+                />
+              </label>
+              <label className={styles.joinLabel}>
+                ICE servers JSON
+                <textarea
+                  className={styles.joinTextarea}
+                  value={iceServersInput}
+                  placeholder='[{"urls":"stun:stun.l.google.com:19302"}]'
+                  onChange={(e) => setIceServersInput(e.target.value)}
+                />
+              </label>
+            </>
+          )}
+        </div>
+
         <button
-          className={styles.primaryButton}
+          className={styles.joinButton}
           onClick={() => onJoin({ displayName, roomId, signalingUrl, iceServersInput })}
         >
-          Create or Join
+          Join Meeting
         </button>
       </div>
     </section>

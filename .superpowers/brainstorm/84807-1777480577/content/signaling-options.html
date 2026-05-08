@@ -1,0 +1,76 @@
+<h2>Choose The Signaling Shape</h2>
+<p class="subtitle">WebRTC media is peer-to-peer, but the two browsers still need a rendezvous channel for offer, answer, and ICE candidates.</p>
+
+<div class="cards">
+  <div class="card" data-choice="manual" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Manual copy / paste</div>
+        <div class="mockup-body">
+          <div class="placeholder">Create offer JSON</div>
+          <div style="text-align:center; padding:8px;">copy to other browser</div>
+          <div class="placeholder">Paste answer JSON</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>No backend</h3>
+      <p>Fastest and most transparent for learning/debugging. Awkward UX, especially with trickle ICE.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="next-api-polling" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Next.js room mailbox</div>
+        <div class="mockup-body">
+          <div class="placeholder">Browser A</div>
+          <div style="text-align:center; padding:8px;">POST / poll room events</div>
+          <div class="placeholder">Browser B</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>In-app signaling</h3>
+      <p>Simple room link and no separate server. Good for local/dev prototype; production/serverless persistence needs care.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="websocket" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. WebSocket signaling server</div>
+        <div class="mockup-body">
+          <div class="placeholder">Browser A</div>
+          <div style="text-align:center; padding:8px;">WS room</div>
+          <div class="placeholder">Browser B</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Real-time signaling</h3>
+      <p>Best meeting-like behavior. Requires a running Node/WebSocket service separate from normal Vercel-style Next routes.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>My recommendation</h4>
+      <ul>
+        <li>Use B for the first WebFastTry-native prototype.</li>
+        <li>Design signaling behind a small interface so C can replace it later.</li>
+        <li>Keep A as an optional debug/export panel if we want deep protocol visibility.</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Main constraint</h4>
+      <ul>
+        <li>Two real browsers need some shared rendezvous state unless users manually pass JSON.</li>
+        <li>Vercel/serverless is not a natural WebSocket host.</li>
+        <li>In-memory rooms reset on dev server restart and do not scale across instances.</li>
+      </ul>
+    </div>
+  </div>
+</div>

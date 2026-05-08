@@ -116,8 +116,21 @@ export function meetingReducer(state: MeetingState, action: MeetingAction): Meet
               ? "failed"
               : state.lifecycle,
       };
-    case "websocket-state":
-      return { ...state, websocketState: action.websocketState };
+    case "websocket-state": {
+      const disconnected =
+        (action.websocketState === "closed" || action.websocketState === "error") &&
+        state.lifecycle !== "idle" &&
+        state.lifecycle !== "left" &&
+        state.lifecycle !== "failed";
+      return {
+        ...state,
+        websocketState: action.websocketState,
+        ...(disconnected && {
+          lifecycle: "failed",
+          error: "Lost connection to signaling server.",
+        }),
+      };
+    }
     case "local-media":
       return { ...state, localMedia: { ...state.localMedia, ...action.media } };
     case "remote-media":

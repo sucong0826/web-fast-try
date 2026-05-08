@@ -1,0 +1,67 @@
+<h2>Pure WebRTC Two-Person Meeting Boundary</h2>
+<p class="subtitle">A first-pass map of what we build fresh inside WebFastTry, with videosdkcompare intentionally outside the reuse boundary.</p>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Target module: /test/webrtc-meeting</div>
+    <div class="mockup-body">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:stretch;">
+        <div style="border:1px solid #cbd5e1; border-radius:8px; padding:14px; background:#f8fafc;">
+          <div class="label">Browser A</div>
+          <h3 style="margin-top:6px;">Host / Caller</h3>
+          <div class="placeholder" style="min-height:70px;">Local camera + mic</div>
+          <div class="placeholder" style="min-height:56px;">Optional screen share track</div>
+          <p style="margin:8px 0 0;">Creates offer, gathers ICE, renders remote media.</p>
+        </div>
+
+        <div style="border:1px solid #cbd5e1; border-radius:8px; padding:14px; background:#f8fafc;">
+          <div class="label">Browser B</div>
+          <h3 style="margin-top:6px;">Guest / Answerer</h3>
+          <div class="placeholder" style="min-height:70px;">Local camera + mic</div>
+          <div class="placeholder" style="min-height:56px;">Optional screen share track</div>
+          <p style="margin:8px 0 0;">Receives offer, sends answer, exchanges ICE, renders remote media.</p>
+        </div>
+      </div>
+
+      <div style="margin:18px 0; display:flex; justify-content:center;">
+        <div style="border:2px solid #2563eb; border-radius:8px; padding:14px 18px; background:#eff6ff; text-align:center; min-width:260px;">
+          <div class="label">Small Signaling Layer</div>
+          <h3 style="margin:6px 0;">Offer / Answer / ICE only</h3>
+          <p style="margin:0;">No media relay. Media stays peer-to-peer through RTCPeerConnection.</p>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
+        <div style="border:1px solid #94a3b8; border-radius:8px; padding:12px; background:#fff;">
+          <div class="label">Media</div>
+          <p>getUserMedia, getDisplayMedia, track replace/add/remove</p>
+        </div>
+        <div style="border:1px solid #94a3b8; border-radius:8px; padding:12px; background:#fff;">
+          <div class="label">Controls</div>
+          <p>mute, camera, share, hang up, device selection</p>
+        </div>
+        <div style="border:1px solid #94a3b8; border-radius:8px; padding:12px; background:#fff;">
+          <div class="label">Diagnostics</div>
+          <p>connection state, ICE state, selected candidate, basic stats</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="boundary-ok" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Boundary Looks Right</h3>
+      <p>Proceed with this pure WebRTC module shape and refine signaling/UX details next.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="boundary-change" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Boundary Needs Changes</h3>
+      <p>Adjust what is in or out of scope before choosing the implementation approach.</p>
+    </div>
+  </div>
+</div>

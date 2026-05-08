@@ -3,21 +3,33 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #faf9ff;
+  --foreground: #0f0e1a;
+  --card: #ffffff;
+  --border: #ede9f8;
+  --muted: #6e6a85;
+  --accent: #7c3aed;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0e0e12;
+    --foreground: #f1f0f6;
+    --card: #18181e;
+    --border: rgba(255, 255, 255, 0.07);
+    --muted: #65627a;
+    --accent: #8b5cf6;
   }
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
 }
 
 @layer utilities {
@@ -25,4 +37,3 @@ body {
     text-wrap: balance;
   }
 }
-

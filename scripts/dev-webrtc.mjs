@@ -1,12 +1,13 @@
 import { spawn, exec } from "node:child_process";
 
 const SIGNALING_PORT = process.env.WEBRTC_SIGNALING_PORT || "8787";
-const APP_PORT = process.env.PORT || "3000";
+const APP_PORT = process.env.PORT || "3001";
 const APP_URL = `http://localhost:${APP_PORT}/test/webrtc-meeting`;
 const OPEN_BROWSER = process.argv.includes("--no-browser") ? false : true;
 
 const env = {
   ...process.env,
+  PORT: APP_PORT,
   NEXT_PUBLIC_SIGNALING_URL:
     process.env.NEXT_PUBLIC_SIGNALING_URL || `ws://localhost:${SIGNALING_PORT}`,
   WEBRTC_SIGNALING_PORT: SIGNALING_PORT,

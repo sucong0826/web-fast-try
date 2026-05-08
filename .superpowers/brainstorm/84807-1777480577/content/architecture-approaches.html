@@ -1,0 +1,82 @@
+<h2>Architecture Approach Options</h2>
+<p class="subtitle">All options build a pure WebRTC two-person meeting with WebSocket signaling, configurable ICE, collaboration tools, and media processing.</p>
+
+<div class="cards">
+  <div class="card" data-choice="monolithic-prototype" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Single page prototype</div>
+        <div class="mockup-body">
+          <div class="placeholder">page.tsx owns UI, WebRTC, media, signaling</div>
+          <div class="placeholder">small ws server</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Fastest demo</h3>
+      <p>Lowest initial overhead, but processor, stats, chat, reconnect, and share logic will quickly crowd the page.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="feature-module" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Feature module with engines</div>
+        <div class="mockup-body">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <div class="placeholder">meeting controller</div>
+            <div class="placeholder">signaling client</div>
+            <div class="placeholder">peer engine</div>
+            <div class="placeholder">media manager</div>
+            <div class="placeholder">processor manager</div>
+            <div class="placeholder">stats/log stores</div>
+          </div>
+          <div style="margin-top:10px;" class="placeholder">independent ws signaling server</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Recommended</h3>
+      <p>Clear boundaries for future needs while still lightweight enough for WebFastTry. Best fit for your “prototype now, expand later” goal.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="package-style-core" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Package-style meeting core</div>
+        <div class="mockup-body">
+          <div class="placeholder">meeting-core library</div>
+          <div class="placeholder">app shell imports core</div>
+          <div class="placeholder">signaling server package</div>
+          <div class="placeholder">processor plugin package</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Most reusable</h3>
+      <p>Strong long-term separation, but more ceremony than this repo currently uses and slower to get the first working meeting.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Why B fits</h4>
+      <ul>
+        <li>Keeps WebRTC, signaling, media capture, processors, stats, chat, and logs independently testable.</li>
+        <li>Leaves room for WebSocket deployment, TURN config, ML processors, and recording later.</li>
+        <li>Matches WebFastTry: a feature page plus a focused feature folder, without overbuilding a package ecosystem.</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Trade-offs</h4>
+      <ul>
+        <li>More files than a demo page.</li>
+        <li>Needs a small state/controller layer so UI does not directly orchestrate all WebRTC operations.</li>
+        <li>Requires careful lifecycle cleanup for tracks, peer connection, processors, and WebSocket sessions.</li>
+      </ul>
+    </div>
+  </div>
+</div>

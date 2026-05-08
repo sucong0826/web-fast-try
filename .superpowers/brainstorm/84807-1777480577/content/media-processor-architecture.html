@@ -1,0 +1,81 @@
+<h2>Media Processor Architecture</h2>
+<p class="subtitle">All microphone, camera, and screen-share tracks pass through a processor boundary before they are sent to the peer.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Track flow: source → processor → preview/send</div>
+  <div class="mockup-body">
+    <div style="display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:14px; align-items:stretch;">
+      <div style="border:1px solid #cbd5e1; border-radius:8px; padding:12px; background:#f8fafc;">
+        <div class="label">Capture Sources</div>
+        <div class="placeholder" style="min-height:54px;">Microphone audio track</div>
+        <div class="placeholder" style="min-height:54px;">Camera video track</div>
+        <div class="placeholder" style="min-height:54px;">Screen-share video track</div>
+      </div>
+
+      <div style="border:2px solid #2563eb; border-radius:8px; padding:12px; background:#eff6ff;">
+        <div class="label">MediaProcessorManager</div>
+        <h3 style="margin:6px 0 10px;">Independent processing boundary</h3>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div style="border:1px solid #93c5fd; border-radius:8px; padding:10px; background:#fff;">
+            <div class="label">Universal Video Adapter</div>
+            <p>video element → canvas/offscreen canvas → captureStream track</p>
+          </div>
+          <div style="border:1px solid #93c5fd; border-radius:8px; padding:10px; background:#fff;">
+            <div class="label">Universal Audio Adapter</div>
+            <p>AudioContext → AudioWorklet/nodes → MediaStreamDestination track</p>
+          </div>
+          <div style="border:1px dashed #3b82f6; border-radius:8px; padding:10px; background:#fff; grid-column:1 / -1;">
+            <div class="label">Optional Chromium Adapter</div>
+            <p>MediaStreamTrackProcessor → TransformStream → Generator when available</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #cbd5e1; border-radius:8px; padding:12px; background:#f8fafc;">
+        <div class="label">Consumers</div>
+        <div class="placeholder" style="min-height:64px;">Processed local preview</div>
+        <div class="placeholder" style="min-height:64px;">RTCPeerConnection sender tracks</div>
+        <div class="placeholder" style="min-height:64px;">Stats / debug taps</div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px; display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
+      <div style="border:1px solid #94a3b8; border-radius:8px; padding:12px; background:#fff;">
+        <div class="label">Camera Processor</div>
+        <p>Virtual background, blur, watermark, frame transforms.</p>
+      </div>
+      <div style="border:1px solid #94a3b8; border-radius:8px; padding:12px; background:#fff;">
+        <div class="label">Microphone Processor</div>
+        <p>Gain, mute gate, denoise, VAD hooks, level meter.</p>
+      </div>
+      <div style="border:1px solid #94a3b8; border-radius:8px; padding:12px; background:#fff;">
+        <div class="label">Share Processor</div>
+        <p>Share scaling, overlays, redaction/blur regions, cursor-safe preview.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="processor-framework-first" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Processor framework first</h3>
+      <p>Build the independent pipeline and pass-through/debug processors first; advanced effects later.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="practical-processors-first" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Practical processors first</h3>
+      <p>Ship the framework plus visible cross-browser processors: video blur/background color/composite and audio gain/gate.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ml-processors-first" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>ML processors first</h3>
+      <p>Include real virtual background segmentation and denoise model/WASM in the first processor milestone.</p>
+    </div>
+  </div>
+</div>

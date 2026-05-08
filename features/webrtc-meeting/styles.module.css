@@ -1,327 +1,800 @@
+/* ============================================================
+   WebRTC Meeting — Graphite + Violet theme
+   ============================================================ */
+
+/* ── Join screen ──────────────────────────────────────────── */
 .joinScreen {
   min-height: 88vh;
   display: grid;
   place-items: center;
-  background: #0f172a;
-  color: #f8fafc;
+  background: #0e0e12;
+  color: #f1f0f6;
 }
 
-.joinPanel {
-  width: min(560px, calc(100vw - 32px));
+.joinCard {
+  width: min(480px, calc(100vw - 32px));
+  background: #18181e;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 20px;
+  padding: 40px 36px;
   display: grid;
-  gap: 16px;
-  padding: 28px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(15, 23, 42, 0.96);
+  gap: 24px;
 }
 
-.brandRow {
+.joinBrand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
-.brandRow h1 {
+.joinBrandIcon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  border-radius: 14px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.joinBrandText h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #f1f0f6;
 }
 
-.brandRow p {
+.joinBrandText p {
   margin: 4px 0 0;
-  color: #94a3b8;
+  font-size: 13px;
+  color: #65627a;
 }
 
-.joinPanel label {
+.joinFields {
+  display: grid;
+  gap: 16px;
+}
+
+.joinLabel {
   display: grid;
   gap: 6px;
-  color: #cbd5e1;
   font-size: 13px;
+  font-weight: 500;
+  color: #9491ae;
 }
 
-.joinPanel input,
-.joinPanel textarea {
+.joinInput {
   width: 100%;
-  border: 1px solid #334155;
-  background: #020617;
-  color: #f8fafc;
+  box-sizing: border-box;
+  height: 42px;
+  background: #0e0e12;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  color: #f1f0f6;
+  padding: 0 12px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.joinInput:focus {
+  border-color: #8b5cf6;
+}
+
+.joinTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 80px;
+  background: #0e0e12;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  color: #f1f0f6;
   padding: 10px 12px;
-}
-
-.joinPanel textarea {
-  min-height: 84px;
+  font-size: 14px;
+  outline: none;
   resize: vertical;
+  transition: border-color 0.15s;
 }
 
-.primaryButton,
-.leaveButton,
-.roundButton,
-.iconButton,
-.copyButton,
-.tabs button,
-.chatForm button {
-  border: 0;
+.joinTextarea:focus {
+  border-color: #8b5cf6;
+}
+
+.advancedToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
   cursor: pointer;
+  color: #65627a;
+  font-size: 12px;
+  padding: 0;
+  width: fit-content;
+  transition: color 0.15s;
 }
 
-.primaryButton {
-  height: 44px;
-  background: #2563eb;
+.advancedToggle:hover {
+  color: #9491ae;
+}
+
+.joinButton {
+  height: 46px;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  border: none;
+  border-radius: 12px;
   color: white;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.joinButton:hover {
+  opacity: 0.92;
+}
+
+.joinButton:active {
+  transform: scale(0.99);
 }
 
 .errorBanner {
   border: 1px solid #ef4444;
-  background: rgba(239, 68, 68, 0.12);
-  color: #fecaca;
-  padding: 10px 12px;
-}
-
-.meetingRoot {
-  min-height: 88vh;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  background: #0f172a;
-  color: #f8fafc;
-}
-
-.statusBar {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 18px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-  color: #cbd5e1;
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  padding: 10px 14px;
+  border-radius: 10px;
   font-size: 13px;
 }
 
-.iconButton {
+/* ── Joining / loading state ──────────────────────────────── */
+.joiningScreen {
+  min-height: 88vh;
+  display: grid;
+  place-items: center;
+  background: #0e0e12;
+}
+
+.joiningCard {
+  text-align: center;
+  display: grid;
+  gap: 16px;
+  color: #9491ae;
+  font-size: 14px;
+}
+
+.spinner {
+  width: 44px;
+  height: 44px;
+  border: 3px solid rgba(139, 92, 246, 0.18);
+  border-top-color: #8b5cf6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Meeting root layout ──────────────────────────────────── */
+.meetingRoot {
+  min-height: 88vh;
+  display: grid;
+  grid-template-rows: 56px 1fr 64px;
+  background: #0e0e12;
+  color: #f1f0f6;
+}
+
+/* ── Header / status bar ──────────────────────────────────── */
+.statusBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  background: #18181e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.statusLogo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #f1f0f6;
+}
+
+.statusLogoIcon {
   width: 32px;
   height: 32px;
   display: grid;
   place-items: center;
-  margin-left: auto;
-  background: transparent;
-  color: #cbd5e1;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  border-radius: 9px;
+  color: white;
 }
 
+.statusDivider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.statusRoom {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e8e7f0;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4a4758;
+  flex-shrink: 0;
+}
+
+.statusDotConnected {
+  background: #34d399;
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.5);
+}
+
+.statusDotConnecting {
+  background: #fbbf24;
+  animation: blink 1.5s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.statusState {
+  font-size: 12px;
+  color: #65627a;
+}
+
+.statusSpacer {
+  flex: 1;
+}
+
+.copyLinkBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 20px;
+  color: #a78bfa;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.copyLinkBtn:hover {
+  background: rgba(139, 92, 246, 0.18);
+  color: #c4b5fd;
+}
+
+/* ── Meeting main area ────────────────────────────────────── */
 .meetingMain {
   min-height: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  transition: grid-template-columns 0.2s ease;
+}
+
+.meetingMainWithPanel {
   grid-template-columns: minmax(0, 1fr) 340px;
 }
 
+/* ── Video stage ──────────────────────────────────────────── */
 .videoStage {
   min-width: 0;
   min-height: 0;
-  padding: 18px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .gridLayout {
-  height: 100%;
+  flex: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .shareLayout {
-  height: 100%;
+  flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 12px;
 }
 
 .sideTiles {
   display: grid;
   grid-template-rows: 1fr 1fr;
-  gap: 14px;
+  gap: 12px;
 }
 
+.waitingRoom {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
+
+.waitingPreview {
+  width: min(540px, 100%);
+  aspect-ratio: 16 / 9;
+}
+
+.waitingInfo {
+  text-align: center;
+  display: grid;
+  gap: 8px;
+}
+
+.waitingInfo h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #e8e7f0;
+}
+
+.waitingInfo p {
+  margin: 0;
+  font-size: 14px;
+  color: #65627a;
+}
+
+/* ── Media tile ───────────────────────────────────────────── */
 .mediaTile {
   position: relative;
   min-height: 180px;
   overflow: hidden;
-  display: grid;
-  place-items: center;
-  background: #020617;
-  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: #18181e;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .mediaTile video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  object-fit: cover;
+}
+
+.mediaTileContain video {
   object-fit: contain;
 }
 
-.mediaEmpty {
-  color: #94a3b8;
+.mediaTileContain {}
+
+.avatarState {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.avatarCircle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b5cf6, #ec4899);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: white;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.avatarName {
+  font-size: 14px;
+  color: #9491ae;
+}
+
+.tileBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 28px 12px 10px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+  border-radius: 0 0 14px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .tileLabel {
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  background: rgba(2, 6, 23, 0.72);
-  color: #f8fafc;
-  padding: 4px 8px;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: white;
+  flex: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-.sidePanel {
-  min-width: 0;
-  border-left: 1px solid rgba(148, 163, 184, 0.2);
-  background: #111827;
-  display: grid;
-  grid-template-rows: auto 1fr;
+.tileMicOff {
+  color: #f87171;
+  flex-shrink: 0;
 }
 
-.tabs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+/* ── Control bar ──────────────────────────────────────────── */
+.controlBar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 0 24px;
+  background: #18181e;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.tabs button {
-  height: 40px;
+.ctrlBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   background: transparent;
-  color: #94a3b8;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-  text-transform: capitalize;
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: #9491ae;
+  transition: background 0.15s, color 0.15s;
 }
 
-.tabs .activeTab {
-  color: #f8fafc;
-  border-bottom-color: #2563eb;
+.ctrlBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f0f6;
+}
+
+.ctrlBtn:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.iconRed {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+}
+
+.iconRed:hover {
+  background: rgba(239, 68, 68, 0.24) !important;
+  color: #fca5a5;
+}
+
+.iconBlue {
+  background: rgba(139, 92, 246, 0.16);
+  color: #a78bfa;
+}
+
+.iconBlue:hover {
+  background: rgba(139, 92, 246, 0.26) !important;
+  color: #c4b5fd;
+}
+
+.ctrlDivider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.09);
+  margin: 0 8px;
+}
+
+.leaveBtnIcon {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+}
+
+.leaveBtnIcon:hover {
+  background: rgba(239, 68, 68, 0.28) !important;
+  color: #fca5a5;
+}
+
+/* ── Side panel ───────────────────────────────────────────── */
+.sidePanel {
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: #18181e;
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 4px;
+}
+
+.panelTabs {
+  display: flex;
+  flex: 1;
+}
+
+.panelTab {
+  height: 48px;
+  padding: 0 14px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #65627a;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.panelTab:hover {
+  color: #9491ae;
+}
+
+.panelTabActive {
+  color: #f1f0f6;
+  border-bottom-color: #8b5cf6;
+}
+
+.panelCloseBtn {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: #65627a;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.panelCloseBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #9491ae;
 }
 
 .panelBody {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   overflow: hidden;
 }
 
-.copyButton {
-  padding: 6px 12px;
-  background: #1e293b;
-  color: #cbd5e1;
-  font-size: 12px;
-  margin: 8px;
-  align-self: start;
+.panelBodyScroll {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .chatList {
+  flex: 1;
   overflow: auto;
-  padding: 12px;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.chatMessage {
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+.chatMsg {
+  display: flex;
+  flex-direction: column;
+  max-width: 85%;
 }
 
-.chatMessage p {
-  margin: 4px 0 0;
-  color: #cbd5e1;
+.chatMsgMine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.chatMsgOther {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.chatMsgName {
+  font-size: 11px;
+  color: #65627a;
+  margin-bottom: 3px;
+  padding: 0 4px;
+}
+
+.chatBubble {
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.chatBubbleMine {
+  background: #7c3aed;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.chatBubbleOther {
+  background: #242430;
+  color: #e8e7f0;
+  border-bottom-left-radius: 4px;
 }
 
 .chatForm {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
-  padding: 12px;
-  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.chatForm input {
+.chatInput {
   min-width: 0;
-  background: #020617;
-  border: 1px solid #334155;
-  color: #f8fafc;
-  padding: 9px 10px;
+  height: 36px;
+  background: #0e0e12;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  color: #f1f0f6;
+  padding: 0 14px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
 }
 
-.chatForm button {
-  background: #2563eb;
+.chatInput:focus {
+  border-color: #8b5cf6;
+}
+
+.chatSendBtn {
+  width: 36px;
+  height: 36px;
+  background: #7c3aed;
+  border: none;
+  border-radius: 50%;
   color: white;
-  padding: 0 14px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s;
+}
+
+.chatSendBtn:hover {
+  background: #6d28d9;
+}
+
+.copyButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  margin: 10px 10px 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: #9491ae;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.copyButton:hover {
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .preBlock {
   overflow: auto;
   margin: 0;
-  padding: 12px;
-  color: #cbd5e1;
-  font-size: 12px;
+  padding: 0 12px 12px;
+  color: #65627a;
+  font-size: 11px;
+  font-family: monospace;
+  white-space: pre-wrap;
 }
 
-.controlBar {
-  min-height: 68px;
+/* ── Device menu modal ────────────────────────────────────── */
+.deviceOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
   display: flex;
+  align-items: center;
   justify-content: center;
-  align-items: center;
-  gap: 12px;
-  border-top: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(15, 23, 42, 0.96);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
 }
 
-.roundButton {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+.deviceModal {
+  width: min(400px, calc(100vw - 32px));
+  background: #242430;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 20px;
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.deviceModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.deviceModalHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1f0f6;
+}
+
+.deviceCloseBtn {
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  background: #1e293b;
-  color: #f8fafc;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: #65627a;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
-.leaveButton {
-  height: 44px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 16px;
-  background: #dc2626;
-  color: white;
-  font-weight: 700;
+.deviceCloseBtn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #9491ae;
 }
 
-.emptyState {
+.deviceLabel {
   display: grid;
-  place-items: center;
-  color: #94a3b8;
-}
-
-.deviceMenu {
-  display: grid;
-  gap: 12px;
-  padding: 12px;
-  background: #1e293b;
-}
-
-.deviceMenu label {
-  display: grid;
-  gap: 4px;
-  color: #cbd5e1;
+  gap: 6px;
   font-size: 13px;
+  font-weight: 500;
+  color: #9491ae;
 }
 
-.deviceMenu select {
-  background: #020617;
-  border: 1px solid #334155;
-  color: #f8fafc;
-  padding: 6px 8px;
+.deviceSelect {
+  width: 100%;
+  height: 40px;
+  background: #0e0e12;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  color: #f1f0f6;
+  padding: 0 10px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
 }
 
+.deviceSelect:focus {
+  border-color: #8b5cf6;
+}
+
+/* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 960px) {
-  .meetingMain {
+  .meetingMain,
+  .meetingMainWithPanel {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(360px, 1fr) 320px;
+    grid-template-rows: minmax(360px, 1fr) 300px;
   }
 
   .sidePanel {
     border-left: 0;
-    border-top: 1px solid rgba(148, 163, 184, 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .gridLayout,

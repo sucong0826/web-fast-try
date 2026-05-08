@@ -1,0 +1,59 @@
+<h2>Phase 1 Meeting UI Layout</h2>
+<p class="subtitle">A tool-like meeting workspace: media stage first, diagnostics always reachable, no marketing page.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Normal call</div>
+    <div class="mockup-body">
+      <div style="display:grid; grid-template-rows:auto 1fr auto; gap:10px; min-height:420px;">
+        <div class="mock-nav">Room: abcd-1234 | Connected | ICE: checking/connected | Copy link</div>
+        <div style="display:grid; grid-template-columns:1fr 320px; gap:10px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div class="placeholder" style="min-height:260px;">Remote camera tile</div>
+            <div class="placeholder" style="min-height:260px;">Local self view</div>
+          </div>
+          <div style="display:grid; grid-template-rows:1fr 1fr; gap:10px;">
+            <div class="placeholder">Chat</div>
+            <div class="placeholder">Stats / Signaling log tabs</div>
+          </div>
+        </div>
+        <div class="mock-nav">Mic | Camera | Share | Devices | Stats | Logs | Record placeholder | Leave</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Screen share active</div>
+    <div class="mockup-body">
+      <div style="display:grid; grid-template-rows:auto 1fr auto; gap:10px; min-height:420px;">
+        <div class="mock-nav">Room: abcd-1234 | Peer sharing screen | Copy link</div>
+        <div style="display:grid; grid-template-columns:1fr 280px; gap:10px;">
+          <div class="placeholder" style="min-height:300px;">Remote or local shared screen main stage</div>
+          <div style="display:grid; grid-template-rows:120px 120px 1fr; gap:10px;">
+            <div class="placeholder">Remote camera</div>
+            <div class="placeholder">Local camera</div>
+            <div class="placeholder">Chat / Stats / Logs</div>
+          </div>
+        </div>
+        <div class="mock-nav">Mic | Camera | Stop Share | Devices | Layout | Record placeholder | Leave</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="layout-ok" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Layout direction OK</h3>
+      <p>Use this workspace style with stage + side diagnostics/chat + bottom controls.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="layout-simpler" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Simpler meeting-first UI</h3>
+      <p>Hide diagnostics/logs behind buttons, keep the visible interface closer to consumer meetings.</p>
+    </div>
+  </div>
+</div>

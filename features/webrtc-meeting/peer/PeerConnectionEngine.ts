@@ -17,9 +17,11 @@ export interface PeerConnectionEngineOptions {
   iceServers: RTCIceServer[];
   onLocalDescription: (description: RTCSessionDescriptionInit) => void;
   onIceCandidate: (candidate: RTCIceCandidateInit | null) => void;
-  onRemoteTrack: (event: RTCTrackEvent) => void;
+  onRemoteTrack: (event: RTCTrackEvent, type: "camera" | "screen") => void;
+  onRemoteAudioStream: (stream: MediaStream) => void;
   onConnectionState: (state: RTCPeerConnectionState) => void;
   onDataMessage: (message: string) => void;
+  onSendersReady: () => void;
   onLog: (message: string) => void;
 }
 
@@ -31,6 +33,9 @@ export class PeerConnectionEngine {
   private microphoneSender: RTCRtpSender | null = null;
   private cameraSender: RTCRtpSender | null = null;
   private screenSender: RTCRtpSender | null = null;
+  private screenTransceiver: RTCRtpTransceiver | null = null;
+  private pendingCandidates: RTCIceCandidateInit[] = [];
+  private pendingRemoteTracks: RTCTrackEvent[] = [];
 
   constructor(options: PeerConnectionEngineOptions) {
     this.options = options;
@@ -42,29 +47,45 @@ export class PeerConnectionEngine {
     const pc = new RTCPeerConnection({ iceServers });
     this.pc = pc;
 
-    // Add 3 transceivers: audio (microphone), video (camera), video (screen)
-    const micTransceiver = pc.addTransceiver("audio", {
-      direction: "sendrecv",
-    });
-    this.microphoneSender = micTransceiver.sender;
+    // Only the caller creates transceivers. The answerer receives them via the
+    // offer and initialises its senders in initAnswererSenders() after
+    // setRemoteDescription. This prevents MID inflation caused by both sides
+    // independently calling addTransceiver before any negotiation.
+    if (role === "caller") {
+      const micT = pc.addTransceiver("audio", { direction: "sendrecv" });
+      this.microphoneSender = micT.sender;
 
-    const cameraTransceiver = pc.addTransceiver("video", {
-      direction: "sendrecv",
-    });
-    this.cameraSender = cameraTransceiver.sender;
+      const camT = pc.addTransceiver("video", { direction: "sendrecv" });
+      this.cameraSender = camT.sender;
 
-    const screenTransceiver = pc.addTransceiver("video", {
-      direction: "sendrecv",
-    });
-    this.screenSender = screenTransceiver.sender;
+      const screenT = pc.addTransceiver("video", { direction: "sendrecv" });
+      this.screenSender = screenT.sender;
+      this.screenTransceiver = screenT;
+    }
 
-    // Set up event handlers
     pc.onicecandidate = (event) => {
       this.options.onIceCandidate(event.candidate);
     };
 
     pc.ontrack = (event) => {
-      this.options.onRemoteTrack(event);
+      this.options.onLog(`ontrack: kind=${event.track.kind} mid=${event.transceiver.mid} screenT=${!!this.screenTransceiver}`);
+      if (event.track.kind === "audio") {
+        // Chrome auto-plays received WebRTC audio without a DOM element; Safari does not.
+        // Always pipe the remote audio into an Audio object to ensure cross-browser playback.
+        const stream = event.streams[0] ?? new MediaStream([event.track]);
+        this.options.onRemoteAudioStream(stream);
+        return;
+      }
+      // For the answerer, screenTransceiver is null until initAnswererSenders() runs (which happens
+      // synchronously right after setRemoteDescription). Queue the event so we route after the
+      // screen transceiver reference is known.
+      if (this.screenTransceiver === null) {
+        this.pendingRemoteTracks.push(event);
+        return;
+      }
+      const type: "camera" | "screen" =
+        event.transceiver === this.screenTransceiver ? "screen" : "camera";
+      this.options.onRemoteTrack(event, type);
     };
 
     pc.onconnectionstatechange = () => {
@@ -85,7 +106,6 @@ export class PeerConnectionEngine {
       }
     };
 
-    // Data channel setup
     if (role === "caller") {
       const channel = pc.createDataChannel("chat");
       this.dataChannel = channel;
@@ -96,6 +116,37 @@ export class PeerConnectionEngine {
         this.setupDataChannel(event.channel);
       };
     }
+  }
+
+  private initAnswererSenders(): void {
+    if (!this.pc || this.microphoneSender) return;
+    const transceivers = this.pc.getTransceivers();
+    const audioT = transceivers.find((t) => t.receiver.track.kind === "audio") ?? null;
+    const videoTs = transceivers.filter((t) => t.receiver.track.kind === "video");
+
+    // Chrome creates transceivers from setRemoteDescription(offer) with direction=recvonly
+    // (per JSEP spec §5.3.1). Without overriding to sendrecv here, setLocalDescription()
+    // produces an answer with a=recvonly, so the caller's ontrack never fires.
+    if (audioT) audioT.direction = "sendrecv";
+    videoTs.forEach((t) => (t.direction = "sendrecv"));
+
+    this.microphoneSender = audioT?.sender ?? null;
+    this.cameraSender = videoTs[0]?.sender ?? null;
+    this.screenSender = videoTs[1]?.sender ?? null;
+    this.screenTransceiver = videoTs[1] ?? null;
+
+    // Drain any video ontrack events that arrived before screenTransceiver was known
+    const pending = this.pendingRemoteTracks.splice(0);
+    for (const event of pending) {
+      const type: "camera" | "screen" =
+        event.transceiver === this.screenTransceiver ? "screen" : "camera";
+      this.options.onRemoteTrack(event, type);
+    }
+
+    this.options.onLog(
+      `answerer senders ready — mic=${!!this.microphoneSender} cam=${!!this.cameraSender} screen=${!!this.screenSender}`,
+    );
+    this.options.onSendersReady();
   }
 
   private setupDataChannel(channel: RTCDataChannel): void {
@@ -122,14 +173,17 @@ export class PeerConnectionEngine {
   }
 
   async setMicrophoneTrack(track: MediaStreamTrack | null): Promise<void> {
+    this.options.onLog(`setMicrophoneTrack: id=${track?.id.slice(0, 8) ?? "null"} senderReady=${!!this.microphoneSender}`);
     await this.microphoneSender?.replaceTrack(track);
   }
 
   async setCameraTrack(track: MediaStreamTrack | null): Promise<void> {
+    this.options.onLog(`setCameraTrack: id=${track?.id.slice(0, 8) ?? "null"} senderReady=${!!this.cameraSender}`);
     await this.cameraSender?.replaceTrack(track);
   }
 
   async setScreenTrack(track: MediaStreamTrack | null): Promise<void> {
+    this.options.onLog(`setScreenTrack: id=${track?.id.slice(0, 8) ?? "null"} senderReady=${!!this.screenSender}`);
     await this.screenSender?.replaceTrack(track);
   }
 
@@ -142,23 +196,36 @@ export class PeerConnectionEngine {
     const { signalingState } = this.pc;
 
     if (description.type === "offer") {
-      if (
-        shouldIgnoreOffer({ polite, makingOffer: this.makingOffer, signalingState })
-      ) {
+      if (shouldIgnoreOffer({ polite, makingOffer: this.makingOffer, signalingState })) {
         return;
       }
 
       await this.pc.setRemoteDescription(description);
 
-      // Set local description (answer)
-      await this.pc.setLocalDescription();
+      // Answerer: extract senders from the offer's transceivers now that they exist
+      if (polite) this.initAnswererSenders();
 
+      await this.pc.setLocalDescription();
       if (this.pc.localDescription) {
         this.options.onLocalDescription(this.pc.localDescription.toJSON());
       }
     } else {
-      // answer
+      this.options.onLog(`applyRemoteDescription(answer) signalingState=${this.pc.signalingState}`);
       await this.pc.setRemoteDescription(description);
+      this.options.onLog(`setRemoteDescription(answer) done, transceivers=${this.pc.getTransceivers().length}`);
+    }
+
+    await this.drainPendingCandidates();
+  }
+
+  private async drainPendingCandidates(): Promise<void> {
+    const queued = this.pendingCandidates.splice(0);
+    for (const candidate of queued) {
+      try {
+        await this.pc?.addIceCandidate(candidate);
+      } catch (err) {
+        this.options.onLog(`addIceCandidate (drained): ${err}`);
+      }
     }
   }
 
@@ -166,6 +233,10 @@ export class PeerConnectionEngine {
     candidate: RTCIceCandidateInit | null,
   ): Promise<void> {
     if (!this.pc || candidate === null) return;
+    if (!this.pc.remoteDescription) {
+      this.pendingCandidates.push(candidate);
+      return;
+    }
     await this.pc.addIceCandidate(candidate);
   }
 
