@@ -19,7 +19,10 @@ export interface PeerConnectionEngineOptions {
   onIceCandidate: (candidate: RTCIceCandidateInit | null) => void;
   onRemoteTrack: (event: RTCTrackEvent, type: "camera" | "screen") => void;
   onRemoteAudioStream: (stream: MediaStream) => void;
-  onConnectionState: (state: RTCPeerConnectionState) => void;
+  onConnectionState: (state: {
+    peerConnectionState: RTCPeerConnectionState;
+    iceConnectionState: RTCIceConnectionState;
+  }) => void;
   onDataMessage: (message: string) => void;
   onSendersReady: () => void;
   onLog: (message: string) => void;
@@ -89,7 +92,10 @@ export class PeerConnectionEngine {
     };
 
     pc.onconnectionstatechange = () => {
-      this.options.onConnectionState(pc.connectionState);
+      this.emitConnectionState();
+    };
+    pc.oniceconnectionstatechange = () => {
+      this.emitConnectionState();
     };
 
     pc.onnegotiationneeded = async () => {
@@ -120,7 +126,12 @@ export class PeerConnectionEngine {
 
   private initAnswererSenders(): void {
     if (!this.pc || this.microphoneSender) return;
-    const transceivers = this.pc.getTransceivers();
+    const transceivers = this.getTransceivers(this.pc);
+    if (transceivers.length === 0) {
+      this.options.onLog("answerer senders unavailable: getTransceivers not supported");
+      this.options.onSendersReady();
+      return;
+    }
     const audioT = transceivers.find((t) => t.receiver.track.kind === "audio") ?? null;
     const videoTs = transceivers.filter((t) => t.receiver.track.kind === "video");
 
@@ -173,17 +184,23 @@ export class PeerConnectionEngine {
   }
 
   async setMicrophoneTrack(track: MediaStreamTrack | null): Promise<void> {
-    this.options.onLog(`setMicrophoneTrack: id=${track?.id.slice(0, 8) ?? "null"} senderReady=${!!this.microphoneSender}`);
+    this.options.onLog(
+      `setMicrophoneTrack: id=${this.trackId(track)} senderReady=${!!this.microphoneSender}`,
+    );
     await this.microphoneSender?.replaceTrack(track);
   }
 
   async setCameraTrack(track: MediaStreamTrack | null): Promise<void> {
-    this.options.onLog(`setCameraTrack: id=${track?.id.slice(0, 8) ?? "null"} senderReady=${!!this.cameraSender}`);
+    this.options.onLog(
+      `setCameraTrack: id=${this.trackId(track)} senderReady=${!!this.cameraSender}`,
+    );
     await this.cameraSender?.replaceTrack(track);
   }
 
   async setScreenTrack(track: MediaStreamTrack | null): Promise<void> {
-    this.options.onLog(`setScreenTrack: id=${track?.id.slice(0, 8) ?? "null"} senderReady=${!!this.screenSender}`);
+    this.options.onLog(
+      `setScreenTrack: id=${this.trackId(track)} senderReady=${!!this.screenSender}`,
+    );
     await this.screenSender?.replaceTrack(track);
   }
 
@@ -212,7 +229,9 @@ export class PeerConnectionEngine {
     } else {
       this.options.onLog(`applyRemoteDescription(answer) signalingState=${this.pc.signalingState}`);
       await this.pc.setRemoteDescription(description);
-      this.options.onLog(`setRemoteDescription(answer) done, transceivers=${this.pc.getTransceivers().length}`);
+      this.options.onLog(
+        `setRemoteDescription(answer) done, transceivers=${this.getTransceivers(this.pc).length}`,
+      );
     }
 
     await this.drainPendingCandidates();
@@ -249,5 +268,22 @@ export class PeerConnectionEngine {
     this.cameraSender = null;
     this.screenSender = null;
     this.screenTransceiver = null;
+  }
+
+  private emitConnectionState(): void {
+    if (!this.pc) return;
+    this.options.onConnectionState({
+      peerConnectionState: this.pc.connectionState,
+      iceConnectionState: this.pc.iceConnectionState,
+    });
+  }
+
+  private getTransceivers(pc: RTCPeerConnection): RTCRtpTransceiver[] {
+    return typeof pc.getTransceivers === "function" ? pc.getTransceivers() : [];
+  }
+
+  private trackId(track: MediaStreamTrack | null): string {
+    const id = track?.id;
+    return typeof id === "string" ? id.slice(0, 8) : "null";
   }
 }

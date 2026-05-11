@@ -115,7 +115,11 @@ export function useMeetingController() {
         publishLogs();
       },
       onConnectionState: (connectionState) => {
-        dispatch({ type: "connection-state-changed", peerConnectionState: connectionState, iceConnectionState: "new" });
+        dispatch({
+          type: "connection-state-changed",
+          peerConnectionState: connectionState.peerConnectionState,
+          iceConnectionState: connectionState.iceConnectionState,
+        });
       },
       onDataMessage: (raw) => {
         try {
