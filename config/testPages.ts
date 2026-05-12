@@ -109,7 +109,7 @@ export const testPages: TestPage[] = [
     title: "Browser Capability Test",
     description: "Zoom Web Media capability check (UA, WebCodecs, predicates)",
     icon: "TestTube",
-    path: "/test/island-browser",
+    path: "/test/browser-capability",
     category: "Debug"
   }
 ];
