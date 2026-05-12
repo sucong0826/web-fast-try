@@ -103,6 +103,14 @@ export const testPages: TestPage[] = [
     icon: "Users",
     path: "/test/webrtc-meeting",
     category: "Media"
+  },
+  {
+    id: "browser-capability",
+    title: "Browser Capability Test",
+    description: "Zoom Web Media capability check (UA, WebCodecs, predicates)",
+    icon: "TestTube",
+    path: "/test/island-browser",
+    category: "Debug"
   }
 ];
 
