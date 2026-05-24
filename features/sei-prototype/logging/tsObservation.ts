@@ -73,7 +73,9 @@ export function createAggregator(options: AggregatorOptions = {}) {
   }
 
   function ingestVpw(entry: RawLogEntry) {
-    state.framesOut += 1;
+    if (entry.kind === "sample" || entry.kind === "passthrough") {
+      state.framesOut += 1;
+    }
     if (entry.kind === "sample") {
       state.sampled += 1;
       const ts = entry.payload.ts as number;
@@ -100,7 +102,7 @@ export function createAggregator(options: AggregatorOptions = {}) {
         row.senderHit = true;
         row.senderSelfParse = entry.payload.selfParse as SeiPayload | null;
         state.hits += 1;
-        state.injected += 1;
+        if (row.senderSelfParse !== null) state.injected += 1;
       } else {
         row.senderHit = false;
         row.senderSelfParse = null;
@@ -110,15 +112,21 @@ export function createAggregator(options: AggregatorOptions = {}) {
   }
 
   function ingestRecvEtw(entry: RawLogEntry) {
+    const parsed = entry.payload.parsed as SeiPayload | null | undefined;
     const metaTs = entry.payload.metaTs as number | undefined;
-    if (metaTs !== undefined) {
-      const row = state.rows.get(metaTs);
+    // Prefer the parsed payload's vfTimestampUs as the join key so that
+    // a deviation between RTCEncodedVideoFrameMetadata.timestamp and the
+    // VPW-side vfTimestampUs (i.e., an H1 failure) does NOT block H4
+    // from being evaluated. Fall back to metaTs only when parsed is null.
+    const joinKey = parsed?.vfTimestampUs ?? metaTs;
+    if (joinKey !== undefined) {
+      const row = state.rows.get(joinKey);
       if (row) {
         row.recvAtMs = entry.t;
         row.recvEncodedTs = entry.payload.encodedTs as number | undefined;
         row.recvMetaTimestamp = metaTs;
         row.recvMetaRtpTs = entry.payload.metaRtpTs as number | undefined;
-        row.recvSEI = entry.payload.parsed as SeiPayload | null;
+        row.recvSEI = parsed ?? null;
         if (row.recvSEI) state.recvParsed += 1;
       }
     }
