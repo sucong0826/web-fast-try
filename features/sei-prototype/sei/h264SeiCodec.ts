@@ -1,3 +1,5 @@
+import { SEI_PAYLOAD_BYTES, SEI_UUID_BYTES, type SeiPayload } from "@/features/sei-prototype/metadata/types";
+
 // Note: the trailing-pad emit below is one-way. If a caller passes arbitrary
 // bytes ending in 0x00 0x00, the appended 0x03 has no follower byte for
 // unescape's lookahead guard to drop, so unescape(escape(x)) may differ from x.
@@ -83,4 +85,36 @@ export function parseAnnexBNalUnits(buf: Uint8Array): AnnexBNalUnit[] {
     cursor = next.offset;
   }
   return out;
+}
+
+export interface EncodeSeiPayloadInput {
+  batchId: number;
+  frameId: number;
+  vfTimestampUs: number | bigint;
+}
+
+export function encodeSeiPayload(input: EncodeSeiPayloadInput): Uint8Array {
+  const out = new Uint8Array(SEI_PAYLOAD_BYTES);
+  out.set(SEI_UUID_BYTES, 0);
+  const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  view.setUint32(16, input.batchId >>> 0, false);
+  view.setUint32(20, input.frameId >>> 0, false);
+  const ts = typeof input.vfTimestampUs === "bigint"
+    ? input.vfTimestampUs
+    : BigInt(input.vfTimestampUs);
+  view.setBigInt64(24, ts, false);
+  return out;
+}
+
+export function decodeSeiPayload(payload: Uint8Array): SeiPayload | null {
+  if (payload.length < SEI_PAYLOAD_BYTES) return null;
+  for (let i = 0; i < 16; i++) {
+    if (payload[i] !== SEI_UUID_BYTES[i]) return null;
+  }
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return {
+    batchId: view.getUint32(16, false),
+    frameId: view.getUint32(20, false),
+    vfTimestampUs: Number(view.getBigInt64(24, false)),
+  };
 }

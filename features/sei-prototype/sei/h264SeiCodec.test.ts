@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  encodeSeiPayload,
+  decodeSeiPayload,
   escapeEmulationPrevention,
   parseAnnexBNalUnits,
   unescapeEmulationPrevention,
 } from "./h264SeiCodec";
+import { SEI_PAYLOAD_BYTES, SEI_UUID_BYTES } from "@/features/sei-prototype/metadata/types";
 
 const u = (...bytes: number[]) => Uint8Array.from(bytes);
 
@@ -102,5 +105,34 @@ describe("annex-b NAL parser", () => {
     const nals = parseAnnexBNalUnits(stream);
     expect(nals[0].nalHeaderOffset).toBe(4);
     expect(nals[1].nalHeaderOffset).toBe(9);
+  });
+});
+
+describe("sei payload codec", () => {
+  it("encodes UUID + batchId + frameId + vfTimestampUs in big-endian", () => {
+    const bytes = encodeSeiPayload({ batchId: 0x01020304, frameId: 0x05060708, vfTimestampUs: 0x090a0b0c0d0e0f10n });
+    expect(bytes.length).toBe(SEI_PAYLOAD_BYTES);
+    expect(Array.from(bytes.subarray(0, 16))).toEqual([...SEI_UUID_BYTES]);
+    expect(Array.from(bytes.subarray(16, 20))).toEqual([0x01, 0x02, 0x03, 0x04]);
+    expect(Array.from(bytes.subarray(20, 24))).toEqual([0x05, 0x06, 0x07, 0x08]);
+    expect(Array.from(bytes.subarray(24, 32))).toEqual([
+      0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+    ]);
+  });
+
+  it("decodes back to the same values", () => {
+    const input = { batchId: 7, frameId: 32, vfTimestampUs: 1_234_567_890_123n };
+    const decoded = decodeSeiPayload(encodeSeiPayload(input));
+    expect(decoded).toEqual({ batchId: 7, frameId: 32, vfTimestampUs: 1_234_567_890_123 });
+  });
+
+  it("returns null when the UUID prefix does not match", () => {
+    const bogus = new Uint8Array(SEI_PAYLOAD_BYTES);
+    bogus.set([0xaa, 0xbb, 0xcc, 0xdd], 0);
+    expect(decodeSeiPayload(bogus)).toBeNull();
+  });
+
+  it("returns null when payload is too short", () => {
+    expect(decodeSeiPayload(new Uint8Array(10))).toBeNull();
   });
 });
