@@ -1,3 +1,7 @@
+// Note: the trailing-pad emit below is one-way. If a caller passes arbitrary
+// bytes ending in 0x00 0x00, the appended 0x03 has no follower byte for
+// unescape's lookahead guard to drop, so unescape(escape(x)) may differ from x.
+// SEI RBSP always ends in 0x80 (rbsp_trailing_bits), so this is unreachable here.
 export function escapeEmulationPrevention(rbsp: Uint8Array): Uint8Array {
   const out: number[] = [];
   let zeros = 0;

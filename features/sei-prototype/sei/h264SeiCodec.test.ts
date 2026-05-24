@@ -40,7 +40,7 @@ describe("h264 emulation prevention", () => {
     ).toEqual(u(0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x03, 0x02));
   });
 
-  it("unescape is the inverse of escape for arbitrary byte strings", () => {
+  it("unescape is the inverse of escape for SEI-shaped byte strings (rbsp_trailing_bit at end)", () => {
     const samples: Uint8Array[] = [
       u(),
       u(0xff),
@@ -48,6 +48,7 @@ describe("h264 emulation prevention", () => {
       u(0x00, 0x00, 0x00, 0x00, 0x00),
       u(0xde, 0xad, 0xbe, 0xef),
       u(0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x04),
+      u(0x06, 0x05, 0x20, 0x00, 0x00, 0x01, 0x02, 0x80),
     ];
     for (const sample of samples) {
       const round = unescapeEmulationPrevention(
