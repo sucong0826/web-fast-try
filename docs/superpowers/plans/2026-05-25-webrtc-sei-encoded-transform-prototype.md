@@ -949,6 +949,11 @@ describe("sampling state machine", () => {
   it("does not sample after the first 4 s of a batch", () => {
     let state = createSamplingState();
     const ts0 = 5_000_000;
+    // Prime the batch anchor at ts0 — otherwise the first call inside
+    // the loop would anchor a new batch at ts0 + 4_000_000 and the
+    // entire post-window region would land inside that new batch's
+    // sampling window.
+    state = stepSampling(state, ts0).state;
     let lateSamples = 0;
     for (let i = 0; i < 12 * 30; i++) {
       const ts = ts0 + 4_000_000 + Math.round((i * 1_000_000) / 30);
