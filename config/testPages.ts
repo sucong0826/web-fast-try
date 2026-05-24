@@ -111,6 +111,14 @@ export const testPages: TestPage[] = [
     icon: "TestTube",
     path: "/test/browser-capability",
     category: "Debug"
+  },
+  {
+    id: "sei-prototype",
+    title: "SEI Prototype",
+    description: "H.264 SEI EncodedTransform round-trip prototype (Chrome only)",
+    icon: "TestTube",
+    path: "/test/sei-prototype",
+    category: "Debug"
   }
 ];
 
