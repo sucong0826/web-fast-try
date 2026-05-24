@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { startPipeline, type PipelineHandles } from "./pipeline/VideoPipelineController";
-import { createAggregator, type AggregatorState, type Summary } from "./logging/tsObservation";
+import { createAggregator, type Summary } from "./logging/tsObservation";
 import type { ExportPayload, SampleRow } from "./metadata/types";
 
 type Phase = "idle" | "starting" | "running" | "stopping" | "error";
