@@ -118,3 +118,69 @@ export function decodeSeiPayload(payload: Uint8Array): SeiPayload | null {
     vfTimestampUs: Number(view.getBigInt64(24, false)),
   };
 }
+
+const SEI_NAL_HEADER = 0x06; // forbidden_zero_bit=0, nal_ref_idc=0, nal_unit_type=6
+const PAYLOAD_TYPE_USER_DATA_UNREGISTERED = 0x05;
+const RBSP_TRAILING = 0x80;
+const VCL_NAL_TYPES = new Set([1, 5]); // non-IDR slice and IDR slice
+
+function isVclNal(nalType: number): boolean {
+  return VCL_NAL_TYPES.has(nalType);
+}
+
+function buildSeiNal(payload: Uint8Array): Uint8Array {
+  // RBSP body: NAL header + payload_type + payload_size + payload + rbsp_trailing.
+  const rbsp = new Uint8Array(3 + payload.length + 1);
+  rbsp[0] = SEI_NAL_HEADER;
+  rbsp[1] = PAYLOAD_TYPE_USER_DATA_UNREGISTERED;
+  rbsp[2] = payload.length & 0xff; // payload < 255 — single byte size field
+  rbsp.set(payload, 3);
+  rbsp[rbsp.length - 1] = RBSP_TRAILING;
+  // Emulation prevention applies to NAL header + payload bytes, not the
+  // start code itself. Wrap that contiguous slice.
+  const ebsp = escapeEmulationPrevention(rbsp);
+  const out = new Uint8Array(4 + ebsp.length);
+  out[0] = 0x00; out[1] = 0x00; out[2] = 0x00; out[3] = 0x01; // Annex-B start code
+  out.set(ebsp, 4);
+  return out;
+}
+
+export function injectSei(data: ArrayBuffer, payload: EncodeSeiPayloadInput): ArrayBuffer {
+  const source = new Uint8Array(data);
+  const nals = parseAnnexBNalUnits(source);
+  if (nals.length === 0) {
+    throw new Error("injectSei: source buffer has no Annex-B NAL units");
+  }
+  const firstVcl = nals.find((nal) => isVclNal(nal.nalType));
+  if (!firstVcl) {
+    throw new Error("injectSei: no VCL NAL found (type 1 or 5)");
+  }
+  // Splice point is the start of the first VCL NAL's *start code*.
+  const spliceOffset = firstVcl.nalHeaderOffset - firstVcl.startCodeLength;
+  const seiNal = buildSeiNal(encodeSeiPayload(payload));
+  const out = new Uint8Array(source.length + seiNal.length);
+  out.set(source.subarray(0, spliceOffset), 0);
+  out.set(seiNal, spliceOffset);
+  out.set(source.subarray(spliceOffset), spliceOffset + seiNal.length);
+  return out.buffer;
+}
+
+export function parseSei(data: ArrayBuffer): SeiPayload | null {
+  const source = new Uint8Array(data);
+  const nals = parseAnnexBNalUnits(source);
+  for (const nal of nals) {
+    if (nal.nalType !== 6) continue;
+    if (nal.bodyLength < 4) continue;
+    // body[0] is the NAL header. body[1..] is the RBSP after EP removal.
+    const rbsp = unescapeEmulationPrevention(nal.body.subarray(1));
+    if (rbsp.length < 2) continue;
+    const payloadType = rbsp[0];
+    if (payloadType !== PAYLOAD_TYPE_USER_DATA_UNREGISTERED) continue;
+    const payloadSize = rbsp[1];
+    if (rbsp.length < 2 + payloadSize) continue;
+    const payload = rbsp.subarray(2, 2 + payloadSize);
+    const decoded = decodeSeiPayload(payload);
+    if (decoded) return decoded;
+  }
+  return null;
+}
