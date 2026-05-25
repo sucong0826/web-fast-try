@@ -119,6 +119,14 @@ export const testPages: TestPage[] = [
     icon: "Users",
     path: "/sei-rtc-test.html",
     category: "Debug"
+  },
+  {
+    id: "sei-rtc-minimal",
+    title: "SEI RTC Minimal",
+    description: "Stripped-down RTCRtpScriptTransform reproducer (canonical pc.addTrack pattern)",
+    icon: "Bug",
+    path: "/sei-rtc-minimal.html",
+    category: "Debug"
   }
 ];
 
