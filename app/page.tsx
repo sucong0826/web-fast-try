@@ -38,6 +38,13 @@ const categoryStyle: Record<string, { icon: string; badge: string }> = {
 
 const fallback = { icon: "from-slate-400 to-slate-500", badge: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" };
 
+// Returns true for paths that resolve to static assets in /public or
+// external URLs — Next.js's <Link> assumes app-router pages, so those
+// destinations must render as a plain <a> to do a full browser load.
+function isStaticOrExternal(path: string): boolean {
+  return path.endsWith(".html") || /^https?:\/\//.test(path);
+}
+
 export default function Home() {
   return (
     <div className="min-h-screen bg-[#faf9ff] dark:bg-[#0e0e12]">
@@ -61,12 +68,9 @@ export default function Home() {
           {testPages.map((page) => {
             const Icon = iconMap[page.icon] ?? TestTube;
             const style = categoryStyle[page.category ?? ""] ?? fallback;
-            return (
-              <Link
-                key={page.id}
-                href={page.path}
-                className="group flex flex-col items-center text-center p-7 rounded-2xl bg-white dark:bg-[#18181e] border border-[#ede9f8] dark:border-white/[0.06] shadow-sm hover:shadow-lg hover:shadow-violet-500/5 hover:-translate-y-1 transition-all duration-200"
-              >
+            const cardClass = "group flex flex-col items-center text-center p-7 rounded-2xl bg-white dark:bg-[#18181e] border border-[#ede9f8] dark:border-white/[0.06] shadow-sm hover:shadow-lg hover:shadow-violet-500/5 hover:-translate-y-1 transition-all duration-200";
+            const inner = (
+              <>
                 <div
                   className={`w-13 h-13 bg-gradient-to-br ${style.icon} rounded-2xl flex items-center justify-center mb-4 shadow-sm group-hover:scale-105 transition-transform duration-200`}
                   style={{ width: 52, height: 52 }}
@@ -84,6 +88,18 @@ export default function Home() {
                     {page.category}
                   </span>
                 )}
+              </>
+            );
+            if (isStaticOrExternal(page.path)) {
+              return (
+                <a key={page.id} href={page.path} className={cardClass}>
+                  {inner}
+                </a>
+              );
+            }
+            return (
+              <Link key={page.id} href={page.path} className={cardClass}>
+                {inner}
               </Link>
             );
           })}

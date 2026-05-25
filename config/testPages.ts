@@ -111,6 +111,14 @@ export const testPages: TestPage[] = [
     icon: "TestTube",
     path: "/test/browser-capability",
     category: "Debug"
+  },
+  {
+    id: "sei-rtc-test",
+    title: "SEI RTC Test",
+    description: "Two-tab RTCRtpScriptTransform diagnostic (open in two windows)",
+    icon: "Users",
+    path: "/sei-rtc-test.html",
+    category: "Debug"
   }
 ];
 
