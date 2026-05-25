@@ -416,3 +416,51 @@ After prototype completion:
 ## Implementation handoff
 
 This document defines the design surface. A separate implementation plan (under `docs/superpowers/plans/`) will sequence the build into testable steps with TDD-friendly checkpoints. The plan must respect every constraint and ordering rule in this document; deviations require updating this document first.
+
+---
+
+## Findings (2026-05-25, post-implementation)
+
+The prototype as designed above was implemented (commits between `eea7243` and `0992cf7`) and exercised across two topologies and two platforms. **The central architectural assumption — that `RTCRtpScriptTransform` lets JavaScript intercept the encoded H.264 byte stream on the wire — does not hold on current Chrome stable, on any platform we tested.** The other three hypotheses (H2 SEI bytes, H3 decoder survival, H4 receiver round-trip) are therefore unreachable through this code path.
+
+### What was verified empirically
+
+| Configuration | Result |
+|---|---|
+| macOS Chrome 148, single tab, dual `RTCPeerConnection` in same JS realm, VideoToolbox HW encoder | `onrtctransform` fires; `transformer.readable` never emits any frame. `framesEncoded > 0` and pc2 `framesDecoded > 0` while the transform stays empty. |
+| macOS Chrome 148, single tab, dual `RTCPeerConnection` in same JS realm, OpenH264 SW encoder (forced via `setParameters` with `maxBitrate: 200_000, scaleResolutionDownBy: 4`) | Same as above. Encoder switch had no effect on transform delivery. |
+| macOS Chrome 148, **two browser windows + real WebSocket signaling via `server/webrtc-signaling/`**, OpenH264 SW encoder | Same as above. ICE/DTLS completes (`pc.connectionState === "connected"`), encoded RTP bytes flow on the wire, but the worker `transform(frame, controller)` callback is never invoked. |
+| Windows Chrome (current stable), two browser windows + signaling, same configuration | Same as above. Cross-platform identical behavior. |
+
+In every configuration:
+- `typeof RTCRtpScriptTransform === "function"` ✓
+- `"transform" in RTCRtpSender.prototype` ✓
+- `tx.sender.transform = new RTCRtpScriptTransform(worker, {role: "sender"})` succeeds without exception ✓
+- The worker's `self.onrtctransform = (event) => { ... }` handler fires and the `transformer` object is constructed correctly ✓
+- `transformer.readable.pipeThrough(...).pipeTo(transformer.writable)` resolves the pipe chain with no error and no completion ✓
+- ❌ **No encoded frame is ever delivered to the user-defined `transform()` callback.**
+
+### Verdict against the original hypotheses
+
+| # | Hypothesis | Verdict | Reason |
+|---|---|---|---|
+| H1 | `meta.timestamp` on encoded frames equals `VideoFrame.timestamp` | **UNREACHABLE** | We cannot read `meta.timestamp` because the transform callback never fires. The underlying μs-PTS preservation may or may not hold in Chrome's internal pipeline; this prototype cannot answer it. |
+| H2 | SEI NAL injected into `encodedFrame.data` self-parses correctly | **UNREACHABLE** (same reason) |
+| H3 | SEI insertion does not break remote decoding | **UNTESTED but irrelevant** because we cannot inject in the first place. |
+| H4 | Receiver `parseSei` recovers the injected payload | **UNREACHABLE** (same reason) |
+
+### Root cause hypothesis (not directly verified)
+
+Chrome's WebRTC implementation appears to satisfy the *spec surface* of `RTCRtpScriptTransform` (constructor, property, event dispatch, transformer object) but does not actually wire the encoder output through `transformer.readable` for H.264 video. The same wiring may or may not work for VP8/VP9/AV1, or for the audio side — that was not tested.
+
+### Engineering implications for the SEI metadata-channel goal
+
+- **Path A (use `RTCRtpScriptTransform` to inject SEI into the WebRTC encoder's H.264 output)** — **not viable on Chrome today**. Re-test only after a future Chrome version explicitly fixes encoded-transform routing for H.264 (track [Chromium Issues](https://issues.chromium.org/) under `Blink>WebRTC>EncodedTransform`).
+- **Path B (self-managed encoder via WebCodecs `VideoEncoder` + custom transport via `RTCDataChannel`)** — viable, with the trade-off of losing WebRTC's jitter buffer, NACK, and FEC, which must be re-implemented or accepted as quality loss. This is the only path that gives JS unconditional access to the H.264 byte stream on current Chrome.
+- **Path C (side-channel metadata via `RTCDataChannel` alongside the normal media track)** — viable and much simpler than B. Loses byte-level SEI alignment but preserves WebRTC media quality. Alignment via `VideoFrame.timestamp` ↔ a parallel timestamp channel on the data channel; works as long as the receiver can correlate the data-channel message to the rendered frame's PTS.
+
+### Preserved artifacts
+
+- `public/sei-rtc-test.html` — standalone diagnostic page that reproduces the finding. Self-contained (worker via Blob URL, talks directly to the existing signaling server). Future Chrome retest: open in two windows with the same Room ID, watch the EncodedTransform status banner.
+- `docs/superpowers/plans/2026-05-25-webrtc-sei-encoded-transform-prototype.md` — original implementation plan (executed; code subsequently removed in `0992cf7` after the finding).
+- `docs/superpowers/plans/2026-05-25-sei-meeting-networked-verification.md` — networked-verification plan (D1–D3 implemented to rule out same-realm bypass; code removed in the same commit).
