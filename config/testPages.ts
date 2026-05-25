@@ -119,6 +119,14 @@ export const testPages: TestPage[] = [
     icon: "TestTube",
     path: "/test/sei-prototype",
     category: "Debug"
+  },
+  {
+    id: "sei-meeting",
+    title: "SEI Meeting",
+    description: "Two-tab networked SEI verification via signaling server",
+    icon: "Users",
+    path: "/test/sei-meeting",
+    category: "Debug"
   }
 ];
 
