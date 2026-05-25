@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SEI EncodedTransform Timestamp Test</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; max-width: 1020px; margin: 0 auto; color: #1a1a1a; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  h2 { font-size: 14px; margin-top: 0; margin-bottom: 8px; }
+  p.lead { color: #555; font-size: 13px; margin-top: 0; margin-bottom: 16px; }
+  .row { margin: 8px 0; display: flex; align-items: center; gap: 8px; }
+  label { display: inline-block; min-width: 110px; font-size: 13px; }
+  input { padding: 4px 8px; font-family: ui-monospace, monospace; font-size: 12px; width: 280px; }
+  button { padding: 6px 14px; font-size: 13px; background: #6d28d9; color: white; border: 0; border-radius: 4px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; background: #888; }
+  button.secondary { background: #475569; }
+  .section { border-top: 1px solid #ddd; padding-top: 14px; margin-top: 18px; }
+  .stat { font-family: ui-monospace, monospace; font-size: 12px; padding: 2px 0; }
+  .stat .key { display: inline-block; min-width: 130px; color: #555; }
+  table { border-collapse: collapse; margin-top: 8px; font-family: ui-monospace, monospace; font-size: 12px; }
+  th, td { border: 1px solid #d4d4d4; padding: 4px 10px; text-align: right; }
+  th { background: #f5f5f5; }
+  .pass { color: #15803d; font-weight: 600; }
+  .fail { color: #b91c1c; font-weight: 600; }
+  #log { font-family: ui-monospace, monospace; font-size: 11px; color: #555; max-height: 200px; overflow: auto; padding: 8px; background: #fafafa; border: 1px solid #e5e5e5; border-radius: 4px; white-space: pre-wrap; }
+  #verdict { margin-top: 12px; font-size: 14px; }
+  #verdict .detail { margin-top: 6px; color: #333; font-size: 13px; }
+  video { max-width: 240px; border: 1px solid #ccc; border-radius: 4px; margin-right: 8px; }
+</style>
+</head>
+<body>
+
+<h1>SEI EncodedTransform Timestamp Test</h1>
+<p class="lead">
+  Real two-tab WebRTC + <code>RTCRtpScriptTransform</code>. Open this page in <strong>two windows</strong>
+  with the same Room ID. First peer becomes caller (camera + sender transform). Second becomes answerer
+  (recv transform). The sender side captures the source <code>VideoFrame.timestamp</code> via
+  <code>MediaStreamTrackProcessor</code> AND records each encoded frame's
+  <code>getMetadata().timestamp</code> — so you can compare them side-by-side.
+  Requires <code>npm run signaling:webrtc</code> running on port 8787.
+</p>
+
+<div class="row">
+  <label>Signaling URL</label>
+  <input id="signalingUrl" value="ws://localhost:8787">
+</div>
+<div class="row">
+  <label>Room ID</label>
+  <input id="roomId" value="sei-rtc-test">
+</div>
+<div class="row">
+  <button id="join">Join</button>
+  <button id="leave" class="secondary" disabled>Leave</button>
+</div>
+
+<div class="section">
+  <h2>Status</h2>
+  <div class="stat"><span class="key">Signaling:</span><span id="sigState">—</span></div>
+  <div class="stat"><span class="key">Role:</span><span id="role">—</span></div>
+  <div class="stat"><span class="key">Connection:</span><span id="connState">—</span></div>
+  <div class="stat"><span class="key">Encoder/Decoder:</span><span id="encoderImpl">—</span></div>
+  <div id="videos" style="margin-top: 8px;"></div>
+</div>
+
+<div class="section">
+  <h2>Source frame timestamps (caller side only, captured before encoder)</h2>
+  <div id="sourceTable">— (caller only; populates as camera frames pass MediaStreamTrackProcessor)</div>
+</div>
+
+<div class="section">
+  <h2>Encoded frame metadata (from RTCRtpScriptTransform)</h2>
+  <div id="encodedTable">— (waits until rtctransform fires AND a frame actually arrives at the transform)</div>
+  <div id="verdict"></div>
+</div>
+
+<div class="section">
+  <h2>Log</h2>
+  <div id="log"></div>
+</div>
+
+<script>
+const sigStateEl = document.getElementById('sigState');
+const roleEl = document.getElementById('role');
+const connStateEl = document.getElementById('connState');
+const encoderImplEl = document.getElementById('encoderImpl');
+const sourceTableEl = document.getElementById('sourceTable');
+const encodedTableEl = document.getElementById('encodedTable');
+const verdictEl = document.getElementById('verdict');
+const logEl = document.getElementById('log');
+const videosEl = document.getElementById('videos');
+const joinBtn = document.getElementById('join');
+const leaveBtn = document.getElementById('leave');
+
+function logLine(msg) {
+  const t = new Date().toISOString().slice(11, 23);
+  logEl.textContent += t + '  ' + msg + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+  console.log(msg);
+}
+
+// ---- Worker source (classic worker) — uses RTCRtpScriptTransform ----
+// Logs the first 8 encoded frames it actually sees, for either role.
+const workerSource = "\n"
+  + "self.onrtctransform = function(event) {\n"
+  + "  var transformer = event.transformer;\n"
+  + "  var role = transformer.options.role;\n"
+  + "  var count = 0;\n"
+  + "  var transform = new TransformStream({\n"
+  + "    transform: function(frame, controller) {\n"
+  + "      count++;\n"
+  + "      if (count <= 8) {\n"
+  + "        var meta = frame.getMetadata();\n"
+  + "        self.postMessage({\n"
+  + "          kind: 'frame',\n"
+  + "          role: role,\n"
+  + "          idx: count,\n"
+  + "          frameTimestamp: frame.timestamp,\n"
+  + "          metaTimestamp: meta.timestamp,\n"
+  + "          metaRtpTimestamp: meta.rtpTimestamp,\n"
+  + "          metaFrameId: meta.frameId,\n"
+  + "          dataByteLength: frame.data.byteLength,\n"
+  + "          frameType: frame.type\n"
+  + "        });\n"
+  + "      }\n"
+  + "      controller.enqueue(frame);\n"
+  + "    }\n"
+  + "  });\n"
+  + "  transformer.readable.pipeThrough(transform).pipeTo(transformer.writable).catch(function(e) {\n"
+  + "    self.postMessage({ kind: 'pipeline-error', role: role, error: String(e) });\n"
+  + "  });\n"
+  + "  self.postMessage({ kind: 'attached', role: role });\n"
+  + "};\n";
+
+const workerBlob = new Blob([workerSource], { type: 'application/javascript' });
+const workerUrl = URL.createObjectURL(workerBlob);
+
+// ---- State ----
+let socket = null;
+let pc = null;
+let participantId = 'p-' + Math.random().toString(36).slice(2, 10);
+let roomId = '';
+let role = null;
+let snapshotResolver = null;
+let camTrack = null;
+let worker = null;
+let statsTimer = null;
+
+const sourceTimestamps = [];   // first N VideoFrame.timestamp values from the camera
+const encodedRows = [];
+
+function renderSource() {
+  if (sourceTimestamps.length === 0) {
+    sourceTableEl.textContent = '— (caller only; populates as camera frames pass MediaStreamTrackProcessor)';
+    return;
+  }
+  let html = '<table><thead><tr><th>idx</th><th>VideoFrame.timestamp (μs)</th></tr></thead><tbody>';
+  sourceTimestamps.forEach(function (ts, i) {
+    html += '<tr><td>' + (i + 1) + '</td><td>' + ts + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  sourceTableEl.innerHTML = html;
+}
+
+function renderEncoded() {
+  if (encodedRows.length === 0) {
+    encodedTableEl.textContent = '— (waits until rtctransform fires AND a frame actually arrives at the transform)';
+    verdictEl.innerHTML = '';
+    return;
+  }
+  let html = '<table><thead><tr>'
+    + '<th>idx</th>'
+    + '<th>role</th>'
+    + '<th>frame.timestamp</th>'
+    + '<th>meta.timestamp</th>'
+    + '<th>meta.rtpTimestamp</th>'
+    + '<th>meta.frameId</th>'
+    + '<th>byteLen</th>'
+    + '<th>type</th>'
+    + '</tr></thead><tbody>';
+  encodedRows.forEach(function (r) {
+    html += '<tr>'
+      + '<td>' + r.idx + '</td>'
+      + '<td>' + r.role + '</td>'
+      + '<td>' + r.frameTimestamp + '</td>'
+      + '<td>' + (r.metaTimestamp == null ? '—' : r.metaTimestamp) + '</td>'
+      + '<td>' + (r.metaRtpTimestamp == null ? '—' : r.metaRtpTimestamp) + '</td>'
+      + '<td>' + (r.metaFrameId == null ? '—' : r.metaFrameId) + '</td>'
+      + '<td>' + r.dataByteLength + '</td>'
+      + '<td>' + r.frameType + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  encodedTableEl.innerHTML = html;
+  computeVerdict();
+}
+
+function computeVerdict() {
+  if (encodedRows.length === 0) {
+    verdictEl.innerHTML = '';
+    return;
+  }
+  if (role !== 'caller') {
+    verdictEl.innerHTML = '<div class="detail">Receiver tab: compare these <code>meta.timestamp</code> values to the <strong>caller</strong> tab\'s source frame timestamps. If they match, the timestamp survives RTP transit.</div>';
+    return;
+  }
+  if (sourceTimestamps.length === 0) {
+    verdictEl.innerHTML = '<div class="detail">Waiting for source timestamps…</div>';
+    return;
+  }
+  const sourceSet = new Set(sourceTimestamps);
+  const matchCount = encodedRows.filter(function (r) {
+    return r.metaTimestamp != null && sourceSet.has(r.metaTimestamp);
+  }).length;
+  if (matchCount === encodedRows.length && matchCount > 0) {
+    verdictEl.innerHTML = '<span class="pass">✅ meta.timestamp matches VideoFrame.timestamp exactly</span>'
+      + '<div class="detail">All ' + encodedRows.length + ' encoded-frame <code>meta.timestamp</code> values appear in the source-frame timestamp set. '
+      + 'H1 holds — the WebRTC encoded-transform preserves the captured presentation timestamp at μs precision.</div>';
+    return;
+  }
+  // Try linear fit.
+  const r0 = encodedRows[0];
+  const s0 = sourceTimestamps[0];
+  const diff = (r0.metaTimestamp != null) ? r0.metaTimestamp - s0 : null;
+  const ratio = (r0.metaTimestamp != null && s0 !== 0) ? (r0.metaTimestamp / s0) : null;
+  const rtpRatio = (r0.metaRtpTimestamp != null && s0 !== 0) ? (r0.metaRtpTimestamp / s0) : null;
+  let hint = '';
+  if (ratio != null && Math.abs(ratio - 90000 / 1000000) < 0.001) {
+    hint = ' ratio ≈ 0.09 — meta.timestamp is in <strong>RTP 90 kHz ticks</strong>, not μs. Fix: multiply VideoFrame.timestamp by 90/1_000_000 (or use meta.rtpTimestamp) for the cache key.';
+  } else if (rtpRatio != null && Math.abs(rtpRatio - 90000 / 1000000) < 0.001) {
+    hint = ' meta.rtpTimestamp looks like the RTP 90 kHz ticks of the source timestamp.';
+  }
+  verdictEl.innerHTML = '<span class="fail">❌ meta.timestamp does NOT match VideoFrame.timestamp</span>'
+    + '<div class="detail">First source ts: <strong>' + s0 + '</strong>, first meta.timestamp: <strong>' + r0.metaTimestamp + '</strong>, '
+    + 'first meta.rtpTimestamp: <strong>' + r0.metaRtpTimestamp + '</strong>. '
+    + 'meta.timestamp − source = ' + diff + '. '
+    + 'meta.timestamp / source = ' + (ratio == null ? '—' : ratio.toFixed(6))
+    + '.' + hint + '</div>';
+}
+
+function newMessageId() {
+  return 'msg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+function send(type, payload) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  const msg = Object.assign({
+    type: type,
+    roomId: roomId,
+    participantId: participantId,
+    messageId: newMessageId(),
+    sentAt: Date.now()
+  }, payload || {});
+  socket.send(JSON.stringify(msg));
+}
+
+async function handleSignal(msg) {
+  if (msg.type === 'room-snapshot') {
+    logLine('signal: room-snapshot; self.role=' + msg.self.role + ' peer=' + (msg.peer ? msg.peer.role : 'null'));
+    if (snapshotResolver) { const r = snapshotResolver; snapshotResolver = null; r(msg); }
+  } else if (msg.type === 'peer-joined') {
+    logLine('signal: peer-joined');
+    if (role === 'caller' && pc) {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      send('offer', { description: offer });
+      logLine('sent offer');
+    }
+  } else if (msg.type === 'offer') {
+    logLine('signal: offer received');
+    await pc.setRemoteDescription(msg.description);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    send('answer', { description: answer });
+    logLine('sent answer');
+  } else if (msg.type === 'answer') {
+    logLine('signal: answer received');
+    await pc.setRemoteDescription(msg.description);
+  } else if (msg.type === 'ice-candidate' && msg.candidate) {
+    try { await pc.addIceCandidate(msg.candidate); } catch (e) { logLine('addIceCandidate err: ' + e.message); }
+  } else if (msg.type === 'error' || msg.type === 'room-full') {
+    logLine('signal error: ' + msg.code + ' ' + msg.message);
+  }
+}
+
+async function join() {
+  const signalingUrl = document.getElementById('signalingUrl').value;
+  roomId = document.getElementById('roomId').value;
+
+  joinBtn.disabled = true;
+  leaveBtn.disabled = false;
+  sigStateEl.textContent = 'connecting';
+  logLine('connecting to ' + signalingUrl);
+
+  socket = new WebSocket(signalingUrl);
+  await new Promise(function (resolve, reject) {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', function (e) { reject(new Error('signaling open failed')); }, { once: true });
+  });
+  sigStateEl.textContent = 'open';
+  logLine('signaling open');
+
+  socket.addEventListener('close', function () { sigStateEl.textContent = 'closed'; });
+  socket.addEventListener('message', function (event) {
+    let parsed;
+    try { parsed = JSON.parse(event.data); } catch (e) { return; }
+    handleSignal(parsed);
+  });
+
+  const snapshotPromise = new Promise(function (r) { snapshotResolver = r; });
+  send('join-room', { displayName: 'tester' });
+  const snapshot = await snapshotPromise;
+  role = snapshot.self.role;
+  roleEl.textContent = role;
+
+  pc = new RTCPeerConnection();
+  pc.onconnectionstatechange = function () { connStateEl.textContent = pc.connectionState; };
+  pc.onicecandidate = function (e) { if (e.candidate) send('ice-candidate', { candidate: e.candidate.toJSON() }); };
+  pc.ontrack = function (event) {
+    logLine('ontrack ' + event.track.kind);
+    const v = document.createElement('video');
+    v.srcObject = event.streams[0] || new MediaStream([event.track]);
+    v.autoplay = true; v.playsInline = true; v.muted = true;
+    videosEl.appendChild(v);
+  };
+
+  worker = new Worker(workerUrl);
+  worker.onmessage = function (event) {
+    const m = event.data;
+    if (m.kind === 'attached') { logLine('worker: transformer attached as ' + m.role); return; }
+    if (m.kind === 'pipeline-error') { logLine('worker pipeline error: ' + m.error); return; }
+    if (m.kind === 'frame') {
+      encodedRows.push(m);
+      renderEncoded();
+    }
+  };
+
+  if (role === 'caller') {
+    logLine('caller: requesting camera 1280x720@30');
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720, frameRate: 30 },
+      audio: false
+    });
+    camTrack = stream.getVideoTracks()[0];
+
+    // Capture source VideoFrame.timestamps via Processor + forward via Generator.
+    const processor = new MediaStreamTrackProcessor({ track: camTrack });
+    const generator = new MediaStreamTrackGenerator({ kind: 'video' });
+    const reader = processor.readable.getReader();
+    const writer = generator.writable.getWriter();
+    (async function () {
+      while (true) {
+        const next = await reader.read();
+        if (next.done || !next.value) break;
+        const frame = next.value;
+        if (sourceTimestamps.length < 8) {
+          sourceTimestamps.push(frame.timestamp);
+          renderSource();
+        }
+        try { await writer.write(frame); } catch (e) { try { frame.close(); } catch (_) {} break; }
+      }
+    })();
+
+    const tx = pc.addTransceiver('video', { direction: 'sendonly' });
+
+    const caps = RTCRtpSender.getCapabilities('video');
+    if (caps) {
+      const h264 = caps.codecs.filter(function (c) {
+        const mt = (c.mimeType || '').toLowerCase();
+        return mt === 'video/h264' || mt === 'video/rtx' || mt === 'video/red' || mt === 'video/ulpfec';
+      });
+      if (h264.some(function (c) { return /h264/i.test(c.mimeType); })) {
+        tx.setCodecPreferences(h264);
+        logLine('setCodecPreferences: H264 only');
+      } else {
+        logLine('WARN: no H264 codec found');
+      }
+    }
+
+    await tx.sender.replaceTrack(generator);
+
+    // Force SW H.264 (OpenH264) — VideoToolbox bypass ScriptTransform on macOS.
+    const params = tx.sender.getParameters();
+    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+    params.encodings[0].active = true;
+    params.encodings[0].maxBitrate = 200000;
+    params.encodings[0].scaleResolutionDownBy = 4;
+    await tx.sender.setParameters(params);
+    logLine('setParameters: maxBitrate=200kbps, scaleResolutionDownBy=4 (force SW encoder)');
+
+    tx.sender.transform = new RTCRtpScriptTransform(worker, { role: 'sender' });
+    logLine('sender.transform attached');
+
+    if (snapshot.peer) {
+      logLine('peer already present in snapshot → drive offer now');
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      send('offer', { description: offer });
+    } else {
+      logLine('no peer yet — waiting for peer-joined');
+    }
+
+    statsTimer = setInterval(async function () {
+      const stats = await pc.getStats();
+      let enc = null;
+      stats.forEach(function (s) {
+        if (s.type === 'outbound-rtp' && s.kind === 'video' && s.encoderImplementation) {
+          enc = s.encoderImplementation;
+        }
+      });
+      encoderImplEl.textContent = enc ? ('encoder=' + enc) : '—';
+    }, 2000);
+  } else {
+    // answerer
+    const rx = pc.addTransceiver('video', { direction: 'recvonly' });
+    rx.receiver.transform = new RTCRtpScriptTransform(worker, { role: 'receiver' });
+    logLine('receiver.transform attached; waiting for offer');
+
+    statsTimer = setInterval(async function () {
+      const stats = await pc.getStats();
+      let dec = null;
+      stats.forEach(function (s) {
+        if (s.type === 'inbound-rtp' && s.kind === 'video' && s.decoderImplementation) {
+          dec = s.decoderImplementation;
+        }
+      });
+      encoderImplEl.textContent = dec ? ('decoder=' + dec) : '—';
+    }, 2000);
+  }
+}
+
+function leave() {
+  try { if (statsTimer) clearInterval(statsTimer); } catch (_) {}
+  try { if (socket) socket.close(); } catch (_) {}
+  try { if (pc) pc.close(); } catch (_) {}
+  try { if (worker) worker.terminate(); } catch (_) {}
+  try { if (camTrack) camTrack.stop(); } catch (_) {}
+  joinBtn.disabled = false;
+  leaveBtn.disabled = true;
+  logLine('left');
+}
+
+joinBtn.addEventListener('click', function () {
+  join().catch(function (e) { logLine('FATAL: ' + (e && e.message ? e.message : String(e))); });
+});
+leaveBtn.addEventListener('click', leave);
+</script>
+
+</body>
+</html>
