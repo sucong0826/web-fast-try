@@ -22,9 +22,6 @@ export interface StartPipelineOptions {
   onError: (error: Error) => void;
 }
 
-const VPW_URL = new URL("../workers/videoProcessing.worker.ts", import.meta.url);
-const ETW_URL = new URL("../workers/encodedTransform.worker.ts", import.meta.url);
-
 function chromeMajor(): string | null {
   const m = navigator.userAgent.match(/Chrome\/(\d+)/);
   return m ? m[1] : null;
@@ -57,9 +54,23 @@ export async function startPipeline(options: StartPipelineOptions): Promise<Pipe
   // Channel ① — VPW <-> Sender ETW.
   const metadataChannel = new MessageChannel();
 
-  const vpwWorker = new Worker(VPW_URL, { type: "module" });
-  const senderEtwWorker = new Worker(ETW_URL, { type: "module" });
-  const recvEtwWorker = new Worker(ETW_URL, { type: "module" });
+  // The `new URL(..., import.meta.url)` literal MUST be inline inside
+  // `new Worker(...)` so webpack 5 / Next.js 14 can statically detect
+  // the worker and emit it as a separate chunk. Extracting the URL to
+  // a const breaks the static analysis and the dev server ends up
+  // serving the raw .ts file with MIME `video/mp2t`.
+  const vpwWorker = new Worker(
+    new URL("../workers/videoProcessing.worker.ts", import.meta.url),
+    { type: "module" },
+  );
+  const senderEtwWorker = new Worker(
+    new URL("../workers/encodedTransform.worker.ts", import.meta.url),
+    { type: "module" },
+  );
+  const recvEtwWorker = new Worker(
+    new URL("../workers/encodedTransform.worker.ts", import.meta.url),
+    { type: "module" },
+  );
 
   listenWorker(vpwWorker, options.onRawLog);
   listenWorker(senderEtwWorker, options.onRawLog);
