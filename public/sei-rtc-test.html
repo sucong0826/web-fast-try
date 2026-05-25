@@ -26,6 +26,13 @@
   #verdict { margin-top: 12px; font-size: 14px; }
   #verdict .detail { margin-top: 6px; color: #333; font-size: 13px; }
   video { max-width: 240px; border: 1px solid #ccc; border-radius: 4px; margin-right: 8px; }
+
+  #etBanner { border-radius: 8px; padding: 14px 18px; margin: 18px 0 6px; font-size: 14px; line-height: 1.5; border: 1px solid transparent; }
+  #etBanner.waiting { background: #f5f5f5; border-color: #d4d4d4; color: #444; }
+  #etBanner.working { background: #ecfdf5; border-color: #34d399; color: #065f46; }
+  #etBanner.failed  { background: #fef2f2; border-color: #f87171; color: #991b1b; }
+  #etBanner .headline { font-size: 16px; font-weight: 700; display: block; margin-bottom: 4px; }
+  #etBanner .sub { font-family: ui-monospace, monospace; font-size: 12px; opacity: 0.9; }
 </style>
 </head>
 <body>
@@ -54,6 +61,11 @@
 <div class="row">
   <button id="join">Join</button>
   <button id="leave" class="secondary" disabled>Leave</button>
+</div>
+
+<div id="etBanner" class="waiting">
+  <span class="headline">EncodedTransform status: idle</span>
+  <span class="sub">Click Join in two windows with the same Room ID. Once <code>Connection: connected</code> shows up, this banner will flip to ✅ <strong>WORKING</strong> if Chrome routes encoded frames through our worker, or to ❌ <strong>NOT DELIVERING FRAMES</strong> if 10 s pass with the connection up and zero frames intercepted.</span>
 </div>
 
 <div class="section">
@@ -93,6 +105,54 @@ const logEl = document.getElementById('log');
 const videosEl = document.getElementById('videos');
 const joinBtn = document.getElementById('join');
 const leaveBtn = document.getElementById('leave');
+const banner = document.getElementById('etBanner');
+
+let connectedAtMs = 0;
+let bannerTimer = null;
+
+function setBanner(state, headline, sub) {
+  banner.className = state;
+  banner.innerHTML = '<span class="headline">' + headline + '</span><span class="sub">' + sub + '</span>';
+}
+
+function bannerWaiting() {
+  setBanner('waiting', 'EncodedTransform status: waiting', 'Connection not yet up. Once <code>connected</code> shows below, this banner reports whether any encoded frame actually enters the worker\'s <code>transform()</code> callback.');
+}
+
+function bannerWorking() {
+  setBanner('working', '✅ EncodedTransform IS WORKING', 'Worker <code>transform()</code> callback has been invoked at least once. Encoded frames in <strong>row count = ' + encodedRows.length + '</strong>. See the "Encoded frame metadata" table below for the actual <code>meta.timestamp</code> values.');
+}
+
+function bannerFailed() {
+  setBanner('failed', '❌ EncodedTransform is NOT delivering frames', 'Connection has been <code>connected</code> for ≥10 s, encoder/RTP is running, but the worker <code>transform()</code> callback has NEVER been invoked. This is the same finding as macOS Chrome 148: the transformer attaches but Chrome does not route frames through it. Confirms the bug is platform-wide.');
+}
+
+function bannerOnConnectionChange(state) {
+  if (state === 'connected') {
+    if (connectedAtMs === 0) connectedAtMs = Date.now();
+    if (encodedRows.length === 0) {
+      setBanner('waiting', 'EncodedTransform status: connected, waiting for first frame…', 'PeerConnection is connected. If the worker <code>transform()</code> callback gets invoked within 10 s, banner will turn green. If not, banner will turn red (frames are bypassing the transform).');
+      if (bannerTimer) clearTimeout(bannerTimer);
+      bannerTimer = setTimeout(function () {
+        if (encodedRows.length === 0) bannerFailed();
+      }, 10_000);
+    }
+  } else if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+    if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+    if (encodedRows.length === 0) {
+      setBanner('failed', '❌ Connection ' + state + ' before any frame intercepted', 'Could not establish or maintain the WebRTC connection long enough to see whether EncodedTransform delivers frames. Check signaling URL, network reachability, and the peer tab.');
+    }
+  }
+}
+
+function bannerOnFirstFrame() {
+  if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+  bannerWorking();
+}
+
+function bannerOnFrame() {
+  if (banner.classList.contains('working')) bannerWorking();
+}
 
 function logLine(msg) {
   const t = new Date().toISOString().slice(11, 23);
@@ -314,6 +374,13 @@ async function join() {
   joinBtn.disabled = true;
   leaveBtn.disabled = false;
   sigStateEl.textContent = 'connecting';
+  encodedRows.length = 0;
+  sourceTimestamps.length = 0;
+  connectedAtMs = 0;
+  if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+  bannerWaiting();
+  renderEncoded();
+  renderSource();
   logLine('connecting to ' + signalingUrl);
 
   socket = new WebSocket(signalingUrl);
@@ -341,7 +408,10 @@ async function join() {
   roleEl.textContent = role;
 
   pc = new RTCPeerConnection();
-  pc.onconnectionstatechange = function () { connStateEl.textContent = pc.connectionState; };
+  pc.onconnectionstatechange = function () {
+    connStateEl.textContent = pc.connectionState;
+    bannerOnConnectionChange(pc.connectionState);
+  };
   pc.onicecandidate = function (e) { if (e.candidate) send('ice-candidate', { candidate: e.candidate.toJSON() }); };
   pc.ontrack = function (event) {
     logLine('ontrack ' + event.track.kind);
@@ -357,8 +427,11 @@ async function join() {
     if (m.kind === 'attached') { logLine('worker: transformer attached as ' + m.role); return; }
     if (m.kind === 'pipeline-error') { logLine('worker pipeline error: ' + m.error); return; }
     if (m.kind === 'frame') {
+      const wasFirst = encodedRows.length === 0;
       encodedRows.push(m);
       renderEncoded();
+      if (wasFirst) bannerOnFirstFrame();
+      else bannerOnFrame();
     }
   };
 
@@ -458,12 +531,21 @@ async function join() {
 
 function leave() {
   try { if (statsTimer) clearInterval(statsTimer); } catch (_) {}
+  try { if (bannerTimer) clearTimeout(bannerTimer); } catch (_) {}
   try { if (socket) socket.close(); } catch (_) {}
   try { if (pc) pc.close(); } catch (_) {}
   try { if (worker) worker.terminate(); } catch (_) {}
   try { if (camTrack) camTrack.stop(); } catch (_) {}
   joinBtn.disabled = false;
   leaveBtn.disabled = true;
+  // If the session ended without any frame intercepted, preserve a
+  // failed banner so the operator can still read the verdict.
+  if (encodedRows.length === 0 && connectedAtMs > 0) {
+    bannerFailed();
+  } else if (encodedRows.length === 0) {
+    bannerWaiting();
+    setBanner('waiting', 'EncodedTransform status: idle', 'Session ended before connection completed. Try again.');
+  }
   logLine('left');
 }
 
