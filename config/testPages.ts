@@ -127,6 +127,14 @@ export const testPages: TestPage[] = [
     icon: "Bug",
     path: "/sei-rtc-minimal.html",
     category: "Debug"
+  },
+  {
+    id: "sei-rtc-h1",
+    title: "SEI RTC H1",
+    description: "VideoFrame.timestamp vs encoded meta.timestamp alignment (side-by-side)",
+    icon: "Zap",
+    path: "/sei-rtc-h1.html",
+    category: "Debug"
   }
 ];
 
