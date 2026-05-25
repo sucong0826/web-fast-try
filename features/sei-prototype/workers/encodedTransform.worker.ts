@@ -47,8 +47,21 @@ self.onrtctransform = (event) => {
   const role = transformer.options.role;
   const prefix = role === "sender" ? "[Sender ETW]" : "[Recv ETW]";
 
+  // Diagnostic counter — log the first 3 frames each side. If these
+  // never print, Chrome isn't routing frames through our TransformStream
+  // at all (encoder/decoder bypass, not a downstream bug).
+  let callbackCount = 0;
+
   const transform = new TransformStream<RTCEncodedVideoFrame, RTCEncodedVideoFrame>({
     transform(frame, controller) {
+      callbackCount += 1;
+      if (callbackCount <= 3) {
+        log(prefix, "transform callback #" + callbackCount, {
+          type: frame.type,
+          timestamp: frame.timestamp,
+          dataByteLength: frame.data.byteLength,
+        });
+      }
       if (role === "sender") {
         handleSenderFrame(prefix, frame, senderState);
       } else {
