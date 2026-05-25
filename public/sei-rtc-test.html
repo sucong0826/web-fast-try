@@ -37,7 +37,10 @@
   (recv transform). The sender side captures the source <code>VideoFrame.timestamp</code> via
   <code>MediaStreamTrackProcessor</code> AND records each encoded frame's
   <code>getMetadata().timestamp</code> — so you can compare them side-by-side.
-  Requires <code>npm run signaling:webrtc</code> running on port 8787.
+  <br><strong>Signaling URL note:</strong> Vercel does not support WebSocket — point this at your
+  separately-deployed signaling server (the same one your webrtc-meeting page uses). The URL is
+  remembered in <code>localStorage</code> after the first successful Join, and can also be set via
+  the <code>?signaling=wss://…</code> query parameter.
 </p>
 
 <div class="row">
@@ -98,14 +101,26 @@ function logLine(msg) {
   console.log(msg);
 }
 
-// Auto-detect signaling URL on load: localhost gets ws://localhost:8787,
-// production HTTPS gets wss://<same hostname>:8787 (override if your
-// signaling server is hosted at a different domain/port).
+// Resolve the signaling URL in priority order:
+//   1. ?signaling=… query parameter (highest priority — sharable link)
+//   2. localStorage["seiSignalingUrl"] (remembered from prior Join)
+//   3. wss:// or ws:// against the page's own hostname on port 8787
+//      (works for the local-dev case; almost never works in production
+//      because Vercel / static hosts don't terminate WebSocket on the
+//      app domain — user must override)
+const SIGNALING_LS_KEY = 'seiSignalingUrl';
 (function () {
   const sigInput = document.getElementById('signalingUrl');
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const host = window.location.hostname || 'localhost';
-  sigInput.value = proto + '://' + host + ':8787';
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get('signaling');
+  const fromStorage = (function () { try { return localStorage.getItem(SIGNALING_LS_KEY); } catch (_) { return null; } })();
+  let resolved = fromQuery || fromStorage;
+  if (!resolved) {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const host = window.location.hostname || 'localhost';
+    resolved = proto + '://' + host + ':8787';
+  }
+  sigInput.value = resolved;
 })();
 
 // ---- Worker source (classic worker) — uses RTCRtpScriptTransform ----
@@ -304,9 +319,12 @@ async function join() {
   socket = new WebSocket(signalingUrl);
   await new Promise(function (resolve, reject) {
     socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', function (e) { reject(new Error('signaling open failed')); }, { once: true });
+    socket.addEventListener('error', function (e) { reject(new Error('signaling open failed (' + signalingUrl + ')')); }, { once: true });
   });
   sigStateEl.textContent = 'open';
+  // Remember the URL only after a successful open, so we never persist
+  // an obviously-broken default.
+  try { localStorage.setItem(SIGNALING_LS_KEY, signalingUrl); } catch (_) {}
   logLine('signaling open');
 
   socket.addEventListener('close', function () { sigStateEl.textContent = 'closed'; });
