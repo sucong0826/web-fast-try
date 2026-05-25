@@ -99,6 +99,27 @@ export async function startPipeline(options: StartPipelineOptions): Promise<Pipe
   if (h264Codecs.length === 0) throw new Error("No H264 codec available — refusing to start prototype");
   tx.setCodecPreferences(h264Codecs);
   await tx.sender.replaceTrack(generatorTrack);
+
+  // Push the encoder outside macOS VideoToolbox's preferred operating
+  // range (low bitrate + small resolution) so Chrome falls back to its
+  // software H.264 implementation (OpenH264). VideoToolbox produces
+  // encoded frames in GPU/hardware buffers that never surface to the
+  // RTCRtpScriptTransform pipeline, so the only way to get encoded
+  // frames into the Sender ETW on macOS today is to keep the encode
+  // path in CPU memory. This is a Chrome implementation heuristic, not
+  // a contract — verify by reading encoderImplementation in getStats.
+  const params = tx.sender.getParameters();
+  if (!params.encodings || params.encodings.length === 0) {
+    params.encodings = [{}];
+  }
+  params.encodings[0] = {
+    ...params.encodings[0],
+    active: true,
+    maxBitrate: 200_000,        // 200 kbps — below VideoToolbox's typical floor
+    scaleResolutionDownBy: 4,    // 1280×720 → 320×180 — also below its floor
+  };
+  await tx.sender.setParameters(params);
+
   tx.sender.transform = new RTCRtpScriptTransform(senderEtwWorker, { role: "sender" });
 
   // pc2: receiver.

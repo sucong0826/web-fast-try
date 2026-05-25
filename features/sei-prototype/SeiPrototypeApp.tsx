@@ -93,6 +93,10 @@ export default function SeiPrototypeApp() {
         aggregator.addStatsSnapshot(snap);
         const decode = extractDecodeStats(snap.pc2);
         aggregator.updateDecodeStats(decode);
+        const impl = extractEncoderImpl(snap);
+        if (impl.encoder || impl.decoder) {
+          console.log("[Stats] encoder:", impl.encoder, "decoder:", impl.decoder);
+        }
       }, 5_000);
       tickIntervalRef.current = window.setInterval(refreshSummary, 500);
 
@@ -274,4 +278,24 @@ function extractDecodeStats(pc2Stats: unknown): { framesDecoded: number; freezeC
     }
   }
   return { framesDecoded, freezeCount };
+}
+
+function extractEncoderImpl(snap: { pc1: unknown; pc2: unknown }): { encoder: string | null; decoder: string | null } {
+  let encoder: string | null = null;
+  let decoder: string | null = null;
+  if (Array.isArray(snap.pc1)) {
+    for (const stat of snap.pc1) {
+      if (stat && typeof stat === "object" && (stat as { type?: string }).type === "outbound-rtp" && (stat as { kind?: string }).kind === "video") {
+        encoder = (stat as { encoderImplementation?: string }).encoderImplementation ?? encoder;
+      }
+    }
+  }
+  if (Array.isArray(snap.pc2)) {
+    for (const stat of snap.pc2) {
+      if (stat && typeof stat === "object" && (stat as { type?: string }).type === "inbound-rtp" && (stat as { kind?: string }).kind === "video") {
+        decoder = (stat as { decoderImplementation?: string }).decoderImplementation ?? decoder;
+      }
+    }
+  }
+  return { encoder, decoder };
 }
