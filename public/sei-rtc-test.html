@@ -42,7 +42,7 @@
 
 <div class="row">
   <label>Signaling URL</label>
-  <input id="signalingUrl" value="ws://localhost:8787">
+  <input id="signalingUrl" placeholder="set automatically on load (ws://… on http, wss://… on https)">
 </div>
 <div class="row">
   <label>Room ID</label>
@@ -97,6 +97,16 @@ function logLine(msg) {
   logEl.scrollTop = logEl.scrollHeight;
   console.log(msg);
 }
+
+// Auto-detect signaling URL on load: localhost gets ws://localhost:8787,
+// production HTTPS gets wss://<same hostname>:8787 (override if your
+// signaling server is hosted at a different domain/port).
+(function () {
+  const sigInput = document.getElementById('signalingUrl');
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const host = window.location.hostname || 'localhost';
+  sigInput.value = proto + '://' + host + ':8787';
+})();
 
 // ---- Worker source (classic worker) — uses RTCRtpScriptTransform ----
 // Logs the first 8 encoded frames it actually sees, for either role.
