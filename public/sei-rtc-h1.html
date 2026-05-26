@@ -1,515 +1,950 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>SEI H1 — VideoFrame.timestamp vs meta.timestamp</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; max-width: 1080px; margin: 0 auto; color: #1a1a1a; }
-  h1 { font-size: 18px; margin-bottom: 4px; }
-  h2 { font-size: 14px; margin: 18px 0 6px; }
-  p.lead { color: #555; font-size: 13px; margin-top: 0; margin-bottom: 16px; }
-  .row { margin: 8px 0; display: flex; align-items: center; gap: 8px; }
-  label { display: inline-block; min-width: 110px; font-size: 13px; }
-  input { padding: 4px 8px; font-family: ui-monospace, monospace; font-size: 12px; width: 360px; }
-  button { padding: 6px 14px; font-size: 13px; background: #6d28d9; color: white; border: 0; border-radius: 4px; cursor: pointer; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; background: #888; }
-  button.secondary { background: #475569; }
-  #verdict { padding: 16px 20px; margin: 16px 0; border-radius: 8px; font-size: 14px; line-height: 1.5; border: 1px solid transparent; }
-  #verdict.waiting { background: #f5f5f5; border-color: #d4d4d4; color: #444; }
-  #verdict.pass    { background: #ecfdf5; border-color: #34d399; color: #065f46; }
-  #verdict.offset  { background: #fffbeb; border-color: #fbbf24; color: #854d0e; }
-  #verdict.fail    { background: #fef2f2; border-color: #f87171; color: #991b1b; }
-  #verdict .headline { font-weight: 700; font-size: 16px; display: block; margin-bottom: 6px; }
-  #verdict .detail { font-size: 13px; opacity: 0.95; }
-  .stat { font-family: ui-monospace, monospace; font-size: 12px; padding: 2px 0; }
-  .stat .key { display: inline-block; min-width: 140px; color: #555; }
-  .tables { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
-  table { border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 11.5px; width: 100%; }
-  th, td { border: 1px solid #d4d4d4; padding: 3px 6px; text-align: right; }
-  th { background: #f5f5f5; font-weight: 600; }
-  td.match { background: #ecfdf5; color: #065f46; font-weight: 600; }
-  td.miss  { background: #fef2f2; color: #991b1b; }
-  #log { font-family: ui-monospace, monospace; font-size: 11px; color: #444; max-height: 240px; overflow: auto; padding: 10px; background: #fafafa; border: 1px solid #e5e5e5; border-radius: 4px; white-space: pre-wrap; }
-</style>
-</head>
-<body>
-
-<h1>SEI H1 — VideoFrame.timestamp vs encoded meta.timestamp</h1>
-<p class="lead">
-  Builds on the working <code>sei-rtc-minimal.html</code> setup (canonical
-  <code>pc.addTrack()</code>, no codec preference forcing, no setParameters tweaks). Adds a
-  side-channel that captures source <code>VideoFrame.timestamp</code> values via a
-  <strong>cloned</strong> camera track + <code>MediaStreamTrackProcessor</code> (peek-only,
-  never forwarded — so the encoder still sees the original raw camera track and the
-  ScriptTransform pipeline stays intact). Side-by-side compares those source values to the
-  <code>meta.timestamp</code> values surfaced by the worker's
-  <code>transform()</code> callback.
-</p>
-
-<div class="row">
-  <label>Signaling URL</label>
-  <input id="signalingUrl" placeholder="wss://…">
-</div>
-<div class="row">
-  <label>Room ID</label>
-  <input id="roomId" value="sei-h1">
-</div>
-<div class="row">
-  <button id="join">Join</button>
-  <button id="leave" class="secondary" disabled>Leave</button>
-</div>
-
-<div id="verdict" class="waiting">
-  <span class="headline">Idle</span>
-  <span class="detail">Open in two windows with the same Room ID. The caller window runs the source-timestamp peek + encoder transform; the answerer just confirms the connection.</span>
-</div>
-
-<div class="stat"><span class="key">Signaling:</span><span id="sigState">—</span></div>
-<div class="stat"><span class="key">Role:</span><span id="role">—</span></div>
-<div class="stat"><span class="key">Connection:</span><span id="connState">—</span></div>
-<div class="stat"><span class="key">Encoder/Decoder:</span><span id="encoderImpl">—</span></div>
-<div class="stat"><span class="key">Source samples (peek):</span><span id="srcCount">0</span></div>
-<div class="stat"><span class="key">Encoded samples (transform):</span><span id="encCount">0</span></div>
-
-<div class="tables">
-  <div>
-    <h2>Source frames (from cloned camera track, peek-only)</h2>
-    <div id="sourceTable">— (caller only)</div>
-  </div>
-  <div>
-    <h2>Encoded frames (from script transform)</h2>
-    <div id="encodedTable">— (waits until transform() fires)</div>
-  </div>
-</div>
-
-<h2>Log</h2>
-<div id="log"></div>
-
-<script>
-const sigUrlInput = document.getElementById('signalingUrl');
-const roomInput = document.getElementById('roomId');
-const joinBtn = document.getElementById('join');
-const leaveBtn = document.getElementById('leave');
-const sigStateEl = document.getElementById('sigState');
-const roleEl = document.getElementById('role');
-const connStateEl = document.getElementById('connState');
-const encoderImplEl = document.getElementById('encoderImpl');
-const srcCountEl = document.getElementById('srcCount');
-const encCountEl = document.getElementById('encCount');
-const sourceTableEl = document.getElementById('sourceTable');
-const encodedTableEl = document.getElementById('encodedTable');
-const verdictEl = document.getElementById('verdict');
-const logEl = document.getElementById('log');
-
-const SIGNALING_LS_KEY = 'seiSignalingUrl';
-const MAX_SAMPLES = 24;
-
-(function () {
-  const params = new URLSearchParams(window.location.search);
-  const fromQuery = params.get('signaling');
-  const fromStorage = (function () { try { return localStorage.getItem(SIGNALING_LS_KEY); } catch (_) { return null; } })();
-  let resolved = fromQuery || fromStorage;
-  if (!resolved) {
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const host = window.location.hostname || 'localhost';
-    resolved = proto + '://' + host + ':8787';
-  }
-  sigUrlInput.value = resolved;
-})();
-
-function logLine(msg) {
-  const t = new Date().toISOString().slice(11, 23);
-  logEl.textContent += t + '  ' + msg + '\n';
-  logEl.scrollTop = logEl.scrollHeight;
-  console.log(msg);
-}
-
-function setVerdict(cls, headline, detail) {
-  verdictEl.className = cls;
-  verdictEl.innerHTML = '<span class="headline">' + headline + '</span><span class="detail">' + detail + '</span>';
-}
-
-// ---- Worker ----
-const workerSource = "\n"
-  + "self.onrtctransform = function(event) {\n"
-  + "  var transformer = event.transformer;\n"
-  + "  var role = (transformer.options && transformer.options.role) || 'unknown';\n"
-  + "  var count = 0;\n"
-  + "  var ts = new TransformStream({\n"
-  + "    transform: function(frame, controller) {\n"
-  + "      count++;\n"
-  + "      if (count <= " + MAX_SAMPLES + ") {\n"
-  + "        var meta = frame.getMetadata();\n"
-  + "        self.postMessage({\n"
-  + "          kind: 'frame',\n"
-  + "          role: role,\n"
-  + "          count: count,\n"
-  + "          frameTimestamp: frame.timestamp,\n"
-  + "          metaTimestamp: meta.timestamp,\n"
-  + "          metaRtpTimestamp: meta.rtpTimestamp,\n"
-  + "          type: frame.type\n"
-  + "        });\n"
-  + "      }\n"
-  + "      controller.enqueue(frame);\n"
-  + "    }\n"
-  + "  });\n"
-  + "  transformer.readable.pipeThrough(ts).pipeTo(transformer.writable).catch(function(e) {\n"
-  + "    self.postMessage({ kind: 'pipeline-error', role: role, error: String(e) });\n"
-  + "  });\n"
-  + "  self.postMessage({ kind: 'attached', role: role });\n"
-  + "};\n";
-const workerBlob = new Blob([workerSource], { type: 'application/javascript' });
-const workerUrl = URL.createObjectURL(workerBlob);
-
-// ---- State ----
-let socket = null;
-let pc = null;
-let worker = null;
-let role = null;
-let camStream = null;
-let peekTrack = null;
-let peekReader = null;
-let statsTimer = null;
-let snapshotResolver = null;
-const sourceFrames = [];   // {idx, timestamp}
-const encodedFrames = [];  // {idx, frameTimestamp, metaTimestamp, metaRtpTimestamp, type}
-const participantId = 'p-' + Math.random().toString(36).slice(2, 10);
-let roomId = '';
-
-function newMessageId() { return 'msg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
-function send(type, payload) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify(Object.assign({
-    type: type, roomId: roomId, participantId: participantId,
-    messageId: newMessageId(), sentAt: Date.now()
-  }, payload || {})));
-}
-
-function usToMs(us) {
-  if (us == null) return '—';
-  // Show as ms with 3 decimal places so no μs precision is lost visually.
-  return (us / 1000).toFixed(3);
-}
-
-function renderSource() {
-  if (sourceFrames.length === 0) { sourceTableEl.textContent = '— (caller only)'; return; }
-  let html = '<table><thead><tr>'
-    + '<th>idx</th><th>VideoFrame.timestamp (μs)</th><th>= (ms)</th>'
-    + '</tr></thead><tbody>';
-  sourceFrames.forEach(function (s) {
-    html += '<tr><td>' + s.idx + '</td><td>' + s.timestamp + '</td><td>' + usToMs(s.timestamp) + '</td></tr>';
-  });
-  html += '</tbody></table>';
-  sourceTableEl.innerHTML = html;
-}
-
-function renderEncoded() {
-  if (encodedFrames.length === 0) { encodedTableEl.textContent = '— (waits until transform() fires)'; return; }
-  const srcSet = new Set(sourceFrames.map(function (s) { return s.timestamp; }));
-  let html = '<table><thead><tr>'
-    + '<th>idx</th><th>frame.ts</th><th>meta.timestamp (μs)</th><th>= (ms)</th><th>meta.rtpTs</th><th>type</th><th>match</th>'
-    + '</tr></thead><tbody>';
-  encodedFrames.forEach(function (e) {
-    const matched = e.metaTimestamp != null && srcSet.has(e.metaTimestamp);
-    html += '<tr>'
-      + '<td>' + e.idx + '</td>'
-      + '<td>' + e.frameTimestamp + '</td>'
-      + '<td class="' + (matched ? 'match' : 'miss') + '">' + (e.metaTimestamp == null ? '—' : e.metaTimestamp) + '</td>'
-      + '<td>' + usToMs(e.metaTimestamp) + '</td>'
-      + '<td>' + (e.metaRtpTimestamp == null ? '—' : e.metaRtpTimestamp) + '</td>'
-      + '<td>' + e.type + '</td>'
-      + '<td>' + (matched ? '✓' : '✗') + '</td>'
-      + '</tr>';
-  });
-  html += '</tbody></table>';
-  encodedTableEl.innerHTML = html;
-  computeVerdict();
-}
-
-let summaryTableDumped = false;
-function dumpSummaryTable() {
-  // Once we have ≥8 encoded samples, dump one final summary table so the
-  // Console has a single canonical view of the H1 evidence. Only dumped once.
-  if (summaryTableDumped || encodedFrames.length < 8 || sourceFrames.length === 0) return;
-  summaryTableDumped = true;
-  const srcSet = new Set(sourceFrames.map(function (s) { return s.timestamp; }));
-  console.group('[H1] Summary — first ' + Math.min(encodedFrames.length, sourceFrames.length) + ' paired rows');
-  console.table(encodedFrames.slice(0, Math.min(encodedFrames.length, sourceFrames.length)).map(function (e, i) {
-    const s = sourceFrames[i];
-    const match = e.metaTimestamp != null && srcSet.has(e.metaTimestamp);
-    return {
-      idx: i + 1,
-      sourceVfTs: s ? s.timestamp : '—',
-      encodedMetaTs: e.metaTimestamp,
-      encodedMetaRtpTs: e.metaRtpTimestamp,
-      'metaTs - sourceVfTs': (s && e.metaTimestamp != null) ? (e.metaTimestamp - s.timestamp) : '—',
-      MATCH: match ? '✅' : '❌'
-    };
-  }));
-  console.groupEnd();
-}
-
-function computeVerdict() {
-  if (encodedFrames.length === 0) return;
-  dumpSummaryTable();
-  if (role !== 'caller') {
-    setVerdict('waiting', 'Receiver tab (no comparison possible here)', 'Source-timestamp peeking only runs on the caller. On the caller window, this banner will compute the verdict once both sides of data are present.');
-    return;
-  }
-  if (sourceFrames.length === 0) {
-    setVerdict('waiting', 'Encoded frames flowing, waiting for source samples', 'transform() is firing (encoded count ' + encodedFrames.length + '). The cloned-track Processor has not produced its first source frame yet — usually arrives within ~50 ms.');
-    return;
-  }
-  const srcSet = new Set(sourceFrames.map(function (s) { return s.timestamp; }));
-  const matched = encodedFrames.filter(function (e) { return e.metaTimestamp != null && srcSet.has(e.metaTimestamp); }).length;
-  const matchRatio = matched / encodedFrames.length;
-
-  if (matchRatio === 1) {
-    setVerdict('pass', '✅ H1 PASS — meta.timestamp matches VideoFrame.timestamp exactly',
-      'All ' + encodedFrames.length + ' encoded-frame <code>meta.timestamp</code> values appear in the source-frame timestamp set. Chrome preserves the μs PTS end-to-end through the encoder. SEI alignment by matching on <code>meta.timestamp</code> at the receiver is sound.');
-    return;
-  }
-
-  if (matchRatio > 0.5) {
-    setVerdict('offset', '⚠ Partial match — μs-scale alignment but some entries miss',
-      'Matched ' + matched + ' / ' + encodedFrames.length + ' rows. Likely a small timing window where source frames captured slightly before the encoded frames showed up. Re-run with a longer session and most rows should converge to ✓.');
-    return;
-  }
-
-  // No direct match — try linear relationships.
-  const e0 = encodedFrames[0];
-  const s0 = sourceFrames[0];
-  const diff = e0.metaTimestamp != null ? e0.metaTimestamp - s0.timestamp : null;
-  const ratio = e0.metaTimestamp != null && s0.timestamp !== 0 ? (e0.metaTimestamp / s0.timestamp) : null;
-  const rtpRatio = e0.metaRtpTimestamp != null && s0.timestamp !== 0 ? (e0.metaRtpTimestamp / s0.timestamp) : null;
-  const RTP_PER_US = 90000 / 1_000_000;
-
-  let hint = '';
-  if (ratio != null && Math.abs(ratio - RTP_PER_US) < 0.005) {
-    hint = ' <strong>meta.timestamp looks like RTP 90 kHz ticks</strong> (ratio ≈ 0.09). Cache key should be <code>Math.round(VideoFrame.timestamp * 90 / 1_000_000)</code>, or just use <code>meta.rtpTimestamp</code>.';
-  } else if (rtpRatio != null && Math.abs(rtpRatio - RTP_PER_US) < 0.005) {
-    hint = ' <code>meta.rtpTimestamp</code> matches RTP 90 kHz of source — use that as the cache key.';
-  } else if (diff != null && Math.abs(diff) < 1_000_000) {
-    hint = ' Constant offset ≈ ' + diff + ' μs — meta.timestamp uses a different epoch but is recoverable: <code>cacheKey = VideoFrame.timestamp + (' + diff + ')</code>.';
-  }
-
-  setVerdict('fail', '❌ H1 mismatch — meta.timestamp does NOT equal VideoFrame.timestamp',
-    'First source ts: <code>' + s0.timestamp + '</code>, first meta.timestamp: <code>' + e0.metaTimestamp + '</code>, '
-    + 'diff: <code>' + diff + '</code> μs, ratio: <code>' + (ratio == null ? '—' : ratio.toFixed(6)) + '</code>.' + hint
-    + ' See the side-by-side tables above for the full sample set.');
-}
-
-async function handleSignal(msg) {
-  if (msg.type === 'room-snapshot') {
-    if (snapshotResolver) { const r = snapshotResolver; snapshotResolver = null; r(msg); }
-  } else if (msg.type === 'peer-joined') {
-    logLine('signal: peer-joined');
-    if (role === 'caller' && pc) {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      send('offer', { description: offer });
-      logLine('sent offer');
-    }
-  } else if (msg.type === 'offer') {
-    logLine('signal: offer received');
-    await pc.setRemoteDescription(msg.description);
-    const ans = await pc.createAnswer();
-    await pc.setLocalDescription(ans);
-    send('answer', { description: ans });
-    logLine('sent answer');
-  } else if (msg.type === 'answer') {
-    logLine('signal: answer received');
-    await pc.setRemoteDescription(msg.description);
-  } else if (msg.type === 'ice-candidate' && msg.candidate) {
-    try { await pc.addIceCandidate(msg.candidate); } catch (e) { logLine('addIceCandidate err: ' + e.message); }
-  } else if (msg.type === 'error' || msg.type === 'room-full') {
-    logLine('signal error: ' + msg.code + ' ' + msg.message);
-  }
-}
-
-async function startPeek(camTrack) {
-  peekTrack = camTrack.clone();
-  logLine('caller: cloned camera track for source-timestamp peek');
-  const processor = new MediaStreamTrackProcessor({ track: peekTrack });
-  peekReader = processor.readable.getReader();
-  (async function () {
-    try {
-      while (sourceFrames.length < MAX_SAMPLES) {
-        const next = await peekReader.read();
-        if (next.done || !next.value) break;
-        const frame = next.value;
-        const idx = sourceFrames.length + 1;
-        sourceFrames.push({ idx: idx, timestamp: frame.timestamp });
-        srcCountEl.textContent = String(sourceFrames.length);
-        // Explicit comparison-friendly console line: visible alongside the
-        // worker's [H1 encoded #N …] lines so you can read them paired.
-        console.log('[H1 source #' + idx + '] VideoFrame.timestamp =', frame.timestamp);
-        renderSource();
-        renderEncoded(); // refresh verdict / match marks
-        frame.close();
+  <head>
+    <meta charset="utf-8" />
+    <title>SEI H1 — VideoFrame.timestamp vs meta.timestamp</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        padding: 20px;
+        max-width: 1080px;
+        margin: 0 auto;
+        color: #1a1a1a;
       }
-      try { peekReader.cancel(); } catch (_) {}
-      try { peekTrack.stop(); } catch (_) {}
-      logLine('caller: source-timestamp peek complete (' + sourceFrames.length + ' samples)');
-    } catch (e) {
-      logLine('peek loop err: ' + (e && e.message ? e.message : String(e)));
-    }
-  })();
-}
+      h1 {
+        font-size: 18px;
+        margin-bottom: 4px;
+      }
+      h2 {
+        font-size: 14px;
+        margin: 18px 0 6px;
+      }
+      p.lead {
+        color: #555;
+        font-size: 13px;
+        margin-top: 0;
+        margin-bottom: 16px;
+      }
+      .row {
+        margin: 8px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      label {
+        display: inline-block;
+        min-width: 110px;
+        font-size: 13px;
+      }
+      input {
+        padding: 4px 8px;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        width: 360px;
+      }
+      button {
+        padding: 6px 14px;
+        font-size: 13px;
+        background: #6d28d9;
+        color: white;
+        border: 0;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background: #888;
+      }
+      button.secondary {
+        background: #475569;
+      }
+      #verdict {
+        padding: 16px 20px;
+        margin: 16px 0;
+        border-radius: 8px;
+        font-size: 14px;
+        line-height: 1.5;
+        border: 1px solid transparent;
+      }
+      #verdict.waiting {
+        background: #f5f5f5;
+        border-color: #d4d4d4;
+        color: #444;
+      }
+      #verdict.pass {
+        background: #ecfdf5;
+        border-color: #34d399;
+        color: #065f46;
+      }
+      #verdict.offset {
+        background: #fffbeb;
+        border-color: #fbbf24;
+        color: #854d0e;
+      }
+      #verdict.fail {
+        background: #fef2f2;
+        border-color: #f87171;
+        color: #991b1b;
+      }
+      #verdict .headline {
+        font-weight: 700;
+        font-size: 16px;
+        display: block;
+        margin-bottom: 6px;
+      }
+      #verdict .detail {
+        font-size: 13px;
+        opacity: 0.95;
+      }
+      .stat {
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        padding: 2px 0;
+      }
+      .stat .key {
+        display: inline-block;
+        min-width: 140px;
+        color: #555;
+      }
+      .tables {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 8px;
+      }
+      table {
+        border-collapse: collapse;
+        font-family: ui-monospace, monospace;
+        font-size: 11.5px;
+        width: 100%;
+      }
+      th,
+      td {
+        border: 1px solid #d4d4d4;
+        padding: 3px 6px;
+        text-align: right;
+      }
+      th {
+        background: #f5f5f5;
+        font-weight: 600;
+      }
+      td.match {
+        background: #ecfdf5;
+        color: #065f46;
+        font-weight: 600;
+      }
+      td.miss {
+        background: #fef2f2;
+        color: #991b1b;
+      }
+      #log {
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        color: #444;
+        max-height: 240px;
+        overflow: auto;
+        padding: 10px;
+        background: #fafafa;
+        border: 1px solid #e5e5e5;
+        border-radius: 4px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>SEI H1 — VideoFrame.timestamp vs encoded meta.timestamp</h1>
+    <p class="lead">
+      Builds on the working <code>sei-rtc-minimal.html</code> setup (canonical
+      <code>pc.addTrack()</code>, no codec preference forcing, no setParameters
+      tweaks). Adds a side-channel that captures source
+      <code>VideoFrame.timestamp</code> values via a
+      <strong>cloned</strong> camera track +
+      <code>MediaStreamTrackProcessor</code> (peek-only, never forwarded — so
+      the encoder still sees the original raw camera track and the
+      ScriptTransform pipeline stays intact). Side-by-side compares those source
+      values to the <code>meta.timestamp</code> values surfaced by the worker's
+      <code>transform()</code> callback.
+    </p>
 
-async function join() {
-  roomId = roomInput.value;
-  sourceFrames.length = 0;
-  encodedFrames.length = 0;
-  srcCountEl.textContent = '0';
-  encCountEl.textContent = '0';
-  joinBtn.disabled = true; leaveBtn.disabled = false;
-  sigStateEl.textContent = 'connecting';
-  setVerdict('waiting', 'Connecting…', 'Establishing WebSocket.');
-  logLine('connecting to ' + sigUrlInput.value);
+    <div class="row">
+      <label>Signaling URL</label>
+      <input id="signalingUrl" placeholder="wss://…" />
+    </div>
+    <div class="row">
+      <label>Room ID</label>
+      <input id="roomId" value="sei-h1" />
+    </div>
+    <div class="row">
+      <button id="join">Join</button>
+      <button id="leave" class="secondary" disabled>Leave</button>
+    </div>
 
-  socket = new WebSocket(sigUrlInput.value);
-  await new Promise(function (resolve, reject) {
-    socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', function () { reject(new Error('signaling open failed (' + sigUrlInput.value + ')')); }, { once: true });
-  });
-  sigStateEl.textContent = 'open';
-  try { localStorage.setItem(SIGNALING_LS_KEY, sigUrlInput.value); } catch (_) {}
-  socket.addEventListener('close', function () { sigStateEl.textContent = 'closed'; });
-  socket.addEventListener('message', function (event) {
-    try { handleSignal(JSON.parse(event.data)); } catch (_) {}
-  });
+    <div id="verdict" class="waiting">
+      <span class="headline">Idle</span>
+      <span class="detail"
+        >Open in two windows with the same Room ID. The caller window runs the
+        source-timestamp peek + encoder transform; the answerer just confirms
+        the connection.</span
+      >
+    </div>
 
-  const snapPromise = new Promise(function (r) { snapshotResolver = r; });
-  send('join-room', { displayName: 'h1' });
-  const snap = await snapPromise;
-  role = snap.self.role;
-  roleEl.textContent = role;
-  logLine('role: ' + role);
+    <div class="stat">
+      <span class="key">Signaling:</span><span id="sigState">—</span>
+    </div>
+    <div class="stat">
+      <span class="key">Role:</span><span id="role">—</span>
+    </div>
+    <div class="stat">
+      <span class="key">Connection:</span><span id="connState">—</span>
+    </div>
+    <div class="stat">
+      <span class="key">Encoder/Decoder:</span><span id="encoderImpl">—</span>
+    </div>
+    <div class="stat">
+      <span class="key">Source samples (peek):</span
+      ><span id="srcCount">0</span>
+    </div>
+    <div class="stat">
+      <span class="key">Encoded samples (transform):</span
+      ><span id="encCount">0</span>
+    </div>
 
-  pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-  pc.onicecandidate = function (e) { if (e.candidate) send('ice-candidate', { candidate: e.candidate.toJSON() }); };
-  pc.onconnectionstatechange = function () {
-    connStateEl.textContent = pc.connectionState;
-    logLine('connection: ' + pc.connectionState);
-  };
-  pc.ontrack = function (event) { logLine('ontrack ' + event.track.kind); };
+    <div class="tables">
+      <div>
+        <h2>Source frames (from cloned camera track, peek-only)</h2>
+        <div id="sourceTable">— (caller only)</div>
+      </div>
+      <div>
+        <h2>Encoded frames (from script transform)</h2>
+        <div id="encodedTable">— (waits until transform() fires)</div>
+      </div>
+    </div>
 
-  worker = new Worker(workerUrl);
-  worker.onmessage = function (event) {
-    const m = event.data;
-    if (m.kind === 'attached') { logLine('worker: transformer attached as ' + m.role); return; }
-    if (m.kind === 'pipeline-error') { logLine('worker pipeline error: ' + m.error); return; }
-    if (m.kind === 'frame') {
-      encodedFrames.push({
-        idx: m.count,
-        frameTimestamp: m.frameTimestamp,
-        metaTimestamp: m.metaTimestamp,
-        metaRtpTimestamp: m.metaRtpTimestamp,
-        type: m.type
+    <h2>Log</h2>
+    <div id="log"></div>
+
+    <script>
+      const sigUrlInput = document.getElementById("signalingUrl");
+      const roomInput = document.getElementById("roomId");
+      const joinBtn = document.getElementById("join");
+      const leaveBtn = document.getElementById("leave");
+      const sigStateEl = document.getElementById("sigState");
+      const roleEl = document.getElementById("role");
+      const connStateEl = document.getElementById("connState");
+      const encoderImplEl = document.getElementById("encoderImpl");
+      const srcCountEl = document.getElementById("srcCount");
+      const encCountEl = document.getElementById("encCount");
+      const sourceTableEl = document.getElementById("sourceTable");
+      const encodedTableEl = document.getElementById("encodedTable");
+      const verdictEl = document.getElementById("verdict");
+      const logEl = document.getElementById("log");
+
+      const SIGNALING_LS_KEY = "seiSignalingUrl";
+      const MAX_SAMPLES = 24;
+
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const fromQuery = params.get("signaling");
+        const fromStorage = (function () {
+          try {
+            return localStorage.getItem(SIGNALING_LS_KEY);
+          } catch (_) {
+            return null;
+          }
+        })();
+        let resolved = fromQuery || fromStorage;
+        if (!resolved) {
+          const proto = window.location.protocol === "https:" ? "wss" : "ws";
+          const host = window.location.hostname || "localhost";
+          resolved = proto + "://" + host + ":8787";
+        }
+        sigUrlInput.value = resolved;
+      })();
+
+      function logLine(msg) {
+        const t = new Date().toISOString().slice(11, 23);
+        logEl.textContent += t + "  " + msg + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+        console.log(msg);
+      }
+
+      function setVerdict(cls, headline, detail) {
+        verdictEl.className = cls;
+        verdictEl.innerHTML =
+          '<span class="headline">' +
+          headline +
+          '</span><span class="detail">' +
+          detail +
+          "</span>";
+      }
+
+      // ---- Worker ----
+      const workerSource =
+        "\n" +
+        "self.onrtctransform = function(event) {\n" +
+        "  var transformer = event.transformer;\n" +
+        "  var role = (transformer.options && transformer.options.role) || 'unknown';\n" +
+        "  var count = 0;\n" +
+        "  var ts = new TransformStream({\n" +
+        "    transform: function(frame, controller) {\n" +
+        "      count++;\n" +
+        "      if (count <= " +
+        MAX_SAMPLES +
+        ") {\n" +
+        "        var meta = frame.getMetadata();\n" +
+        "        self.postMessage({\n" +
+        "          kind: 'frame',\n" +
+        "          role: role,\n" +
+        "          count: count,\n" +
+        "          frameTimestamp: frame.timestamp,\n" +
+        "          metaTimestamp: meta.timestamp,\n" +
+        "          metaRtpTimestamp: meta.rtpTimestamp,\n" +
+        "          metaCaptureTime: meta.captureTime,\n" +
+        "          metaSenderCaptureTimeOffset: meta.senderCaptureTimeOffset,\n" +
+        "          type: frame.type\n" +
+        "        });\n" +
+        "      }\n" +
+        "      controller.enqueue(frame);\n" +
+        "    }\n" +
+        "  });\n" +
+        "  transformer.readable.pipeThrough(ts).pipeTo(transformer.writable).catch(function(e) {\n" +
+        "    self.postMessage({ kind: 'pipeline-error', role: role, error: String(e) });\n" +
+        "  });\n" +
+        "  self.postMessage({ kind: 'attached', role: role });\n" +
+        "};\n";
+      const workerBlob = new Blob([workerSource], {
+        type: "application/javascript",
       });
-      encCountEl.textContent = String(encodedFrames.length);
-      // Comparison-oriented console line. Looks up whether this encoded
-      // frame's meta.timestamp is present in the source-frame set captured
-      // by the cloned-track peek loop — that's the actual H1 check, done
-      // inline so you can read it in the Console without checking tables.
-      const srcSet = new Set(sourceFrames.map(function (s) { return s.timestamp; }));
-      const match = m.metaTimestamp != null && srcSet.has(m.metaTimestamp);
-      const matchedIdx = match
-        ? sourceFrames.find(function (s) { return s.timestamp === m.metaTimestamp; }).idx
-        : null;
-      console.log(
-        '[H1 encoded #' + m.count + ']',
-        'frame.timestamp =', m.frameTimestamp,
-        '| meta.timestamp =', m.metaTimestamp,
-        '| meta.rtpTimestamp =', m.metaRtpTimestamp,
-        '| type =', m.type,
-        '| MATCH source #' + (matchedIdx || '—') + ':', match ? '✅' : '❌'
-      );
-      // On the first encoded frame, also dump a compact pairing table so
-      // a single glance at the Console shows the two streams side by side.
-      if (encodedFrames.length === 1 && sourceFrames.length > 0) {
-        console.groupCollapsed('[H1] First encoded frame received — current source/encoded snapshot');
-        console.table(sourceFrames.slice(0, 8).map(function (s, i) {
-          const e = encodedFrames[i];
-          return {
-            idx: s.idx,
-            'source.VideoFrame.timestamp': s.timestamp,
-            'encoded.meta.timestamp': e ? e.metaTimestamp : '—',
-            'encoded.meta.rtpTimestamp': e ? e.metaRtpTimestamp : '—',
-            diff: e && e.metaTimestamp != null ? (e.metaTimestamp - s.timestamp) : '—'
-          };
-        }));
+      const workerUrl = URL.createObjectURL(workerBlob);
+
+      // ---- State ----
+      let socket = null;
+      let pc = null;
+      let worker = null;
+      let role = null;
+      let camStream = null;
+      let peekTrack = null;
+      let peekReader = null;
+      let statsTimer = null;
+      let snapshotResolver = null;
+      const sourceFrames = []; // {idx, timestamp}
+      const encodedFrames = []; // {idx, frameTimestamp, metaTimestamp, metaRtpTimestamp, type}
+      const participantId = "p-" + Math.random().toString(36).slice(2, 10);
+      let roomId = "";
+
+      function newMessageId() {
+        return (
+          "msg-" +
+          Date.now().toString(36) +
+          "-" +
+          Math.random().toString(36).slice(2, 8)
+        );
+      }
+      function send(type, payload) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(
+          JSON.stringify(
+            Object.assign(
+              {
+                type: type,
+                roomId: roomId,
+                participantId: participantId,
+                messageId: newMessageId(),
+                sentAt: Date.now(),
+              },
+              payload || {},
+            ),
+          ),
+        );
+      }
+
+      function usToMs(us) {
+        if (us == null) return "—";
+        // Show as ms with 3 decimal places so no μs precision is lost visually.
+        return (us / 1000).toFixed(3);
+      }
+
+      function renderSource() {
+        if (sourceFrames.length === 0) {
+          sourceTableEl.textContent = "— (caller only)";
+          return;
+        }
+        let html =
+          "<table><thead><tr>" +
+          "<th>idx</th><th>VideoFrame.timestamp (μs)</th><th>= (ms)</th>" +
+          "</tr></thead><tbody>";
+        sourceFrames.forEach(function (s) {
+          html +=
+            "<tr><td>" +
+            s.idx +
+            "</td><td>" +
+            s.timestamp +
+            "</td><td>" +
+            usToMs(s.timestamp) +
+            "</td></tr>";
+        });
+        html += "</tbody></table>";
+        sourceTableEl.innerHTML = html;
+      }
+
+      function renderEncoded() {
+        if (encodedFrames.length === 0) {
+          encodedTableEl.textContent = "— (waits until transform() fires)";
+          return;
+        }
+        const srcSet = new Set(
+          sourceFrames.map(function (s) {
+            return s.timestamp;
+          }),
+        );
+        let html =
+          "<table><thead><tr>" +
+          "<th>idx</th><th>frame.ts</th><th>meta.timestamp (μs)</th><th>= (ms)</th><th>meta.rtpTs</th><th>meta.captureTime</th><th>meta.sndrCapTsOff</th><th>type</th><th>match</th>" +
+          "</tr></thead><tbody>";
+        encodedFrames.forEach(function (e) {
+          const matched =
+            e.metaTimestamp != null && srcSet.has(e.metaTimestamp);
+          html +=
+            "<tr>" +
+            "<td>" +
+            e.idx +
+            "</td>" +
+            "<td>" +
+            e.frameTimestamp +
+            "</td>" +
+            '<td class="' +
+            (matched ? "match" : "miss") +
+            '">' +
+            (e.metaTimestamp == null ? "—" : e.metaTimestamp) +
+            "</td>" +
+            "<td>" +
+            usToMs(e.metaTimestamp) +
+            "</td>" +
+            "<td>" +
+            (e.metaRtpTimestamp == null ? "—" : e.metaRtpTimestamp) +
+            "</td>" +
+            "<td>" +
+            (e.metaCaptureTime == null ? "—" : e.metaCaptureTime) +
+            "</td>" +
+            "<td>" +
+            (e.metaSenderCaptureTimeOffset == null ? "—" : e.metaSenderCaptureTimeOffset) +
+            "</td>" +
+            "<td>" +
+            e.type +
+            "</td>" +
+            "<td>" +
+            (matched ? "✓" : "✗") +
+            "</td>" +
+            "</tr>";
+        });
+        html += "</tbody></table>";
+        encodedTableEl.innerHTML = html;
+        computeVerdict();
+      }
+
+      let summaryTableDumped = false;
+      function dumpSummaryTable() {
+        // Once we have ≥8 encoded samples, dump one final summary table so the
+        // Console has a single canonical view of the H1 evidence. Only dumped once.
+        if (
+          summaryTableDumped ||
+          encodedFrames.length < 8 ||
+          sourceFrames.length === 0
+        )
+          return;
+        summaryTableDumped = true;
+        const srcSet = new Set(
+          sourceFrames.map(function (s) {
+            return s.timestamp;
+          }),
+        );
+        console.group(
+          "[H1] Summary — first " +
+            Math.min(encodedFrames.length, sourceFrames.length) +
+            " paired rows",
+        );
+        console.table(
+          encodedFrames
+            .slice(0, Math.min(encodedFrames.length, sourceFrames.length))
+            .map(function (e, i) {
+              const s = sourceFrames[i];
+              const match =
+                e.metaTimestamp != null && srcSet.has(e.metaTimestamp);
+              return {
+                idx: i + 1,
+                sourceVfTs: s ? s.timestamp : "—",
+                encodedMetaTs: e.metaTimestamp,
+                encodedMetaRtpTs: e.metaRtpTimestamp,
+                encodedCaptureTime: e.metaCaptureTime == null ? "—" : e.metaCaptureTime,
+                encodedSenderCaptureTimeOffset: e.metaSenderCaptureTimeOffset == null ? "—" : e.metaSenderCaptureTimeOffset,
+                "metaTs - sourceVfTs":
+                  s && e.metaTimestamp != null
+                    ? e.metaTimestamp - s.timestamp
+                    : "—",
+                MATCH: match ? "✅" : "❌",
+              };
+            }),
+        );
         console.groupEnd();
       }
-      renderEncoded();
-    }
-  };
 
-  if (role === 'caller') {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    const camTrack = camStream.getVideoTracks()[0];
-    logLine('caller: camera settings: ' + JSON.stringify(camTrack.getSettings()));
+      function computeVerdict() {
+        if (encodedFrames.length === 0) return;
+        dumpSummaryTable();
+        if (role !== "caller") {
+          setVerdict(
+            "waiting",
+            "Receiver tab (no comparison possible here)",
+            "Source-timestamp peeking only runs on the caller. On the caller window, this banner will compute the verdict once both sides of data are present.",
+          );
+          return;
+        }
+        if (sourceFrames.length === 0) {
+          setVerdict(
+            "waiting",
+            "Encoded frames flowing, waiting for source samples",
+            "transform() is firing (encoded count " +
+              encodedFrames.length +
+              "). The cloned-track Processor has not produced its first source frame yet — usually arrives within ~50 ms.",
+          );
+          return;
+        }
+        const srcSet = new Set(
+          sourceFrames.map(function (s) {
+            return s.timestamp;
+          }),
+        );
+        const matched = encodedFrames.filter(function (e) {
+          return e.metaTimestamp != null && srcSet.has(e.metaTimestamp);
+        }).length;
+        const matchRatio = matched / encodedFrames.length;
 
-    // 1. Start side-channel peek BEFORE adding to PC, so we capture the first
-    //    source frame timestamps as soon as the camera produces them.
-    await startPeek(camTrack);
+        if (matchRatio === 1) {
+          setVerdict(
+            "pass",
+            "✅ H1 PASS — meta.timestamp matches VideoFrame.timestamp exactly",
+            "All " +
+              encodedFrames.length +
+              " encoded-frame <code>meta.timestamp</code> values appear in the source-frame timestamp set. Chrome preserves the μs PTS end-to-end through the encoder. SEI alignment by matching on <code>meta.timestamp</code> at the receiver is sound.",
+          );
+          return;
+        }
 
-    // 2. Canonical pattern: pc.addTrack with the ORIGINAL camera track.
-    //    Do NOT use Processor/Generator, do NOT setCodecPreferences, do NOT setParameters.
-    const sender = pc.addTrack(camTrack, camStream);
-    sender.transform = new RTCRtpScriptTransform(worker, { role: 'sender' });
-    logLine('caller: pc.addTrack + sender.transform attached');
+        if (matchRatio > 0.5) {
+          setVerdict(
+            "offset",
+            "⚠ Partial match — μs-scale alignment but some entries miss",
+            "Matched " +
+              matched +
+              " / " +
+              encodedFrames.length +
+              " rows. Likely a small timing window where source frames captured slightly before the encoded frames showed up. Re-run with a longer session and most rows should converge to ✓.",
+          );
+          return;
+        }
 
-    if (snap.peer) {
-      logLine('peer already present → drive offer now');
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      send('offer', { description: offer });
-    }
+        // No direct match — try linear relationships.
+        const e0 = encodedFrames[0];
+        const s0 = sourceFrames[0];
+        const diff =
+          e0.metaTimestamp != null ? e0.metaTimestamp - s0.timestamp : null;
+        const ratio =
+          e0.metaTimestamp != null && s0.timestamp !== 0
+            ? e0.metaTimestamp / s0.timestamp
+            : null;
+        const rtpRatio =
+          e0.metaRtpTimestamp != null && s0.timestamp !== 0
+            ? e0.metaRtpTimestamp / s0.timestamp
+            : null;
+        const RTP_PER_US = 90000 / 1_000_000;
 
-    statsTimer = setInterval(async function () {
-      const stats = await pc.getStats();
-      let enc = null;
-      stats.forEach(function (s) {
-        if (s.type === 'outbound-rtp' && s.kind === 'video' && s.encoderImplementation) enc = s.encoderImplementation;
+        let hint = "";
+        if (ratio != null && Math.abs(ratio - RTP_PER_US) < 0.005) {
+          hint =
+            " <strong>meta.timestamp looks like RTP 90 kHz ticks</strong> (ratio ≈ 0.09). Cache key should be <code>Math.round(VideoFrame.timestamp * 90 / 1_000_000)</code>, or just use <code>meta.rtpTimestamp</code>.";
+        } else if (
+          rtpRatio != null &&
+          Math.abs(rtpRatio - RTP_PER_US) < 0.005
+        ) {
+          hint =
+            " <code>meta.rtpTimestamp</code> matches RTP 90 kHz of source — use that as the cache key.";
+        } else if (diff != null && Math.abs(diff) < 1_000_000) {
+          hint =
+            " Constant offset ≈ " +
+            diff +
+            " μs — meta.timestamp uses a different epoch but is recoverable: <code>cacheKey = VideoFrame.timestamp + (" +
+            diff +
+            ")</code>.";
+        }
+
+        setVerdict(
+          "fail",
+          "❌ H1 mismatch — meta.timestamp does NOT equal VideoFrame.timestamp",
+          "First source ts: <code>" +
+            s0.timestamp +
+            "</code>, first meta.timestamp: <code>" +
+            e0.metaTimestamp +
+            "</code>, " +
+            "diff: <code>" +
+            diff +
+            "</code> μs, ratio: <code>" +
+            (ratio == null ? "—" : ratio.toFixed(6)) +
+            "</code>." +
+            hint +
+            " See the side-by-side tables above for the full sample set.",
+        );
+      }
+
+      async function handleSignal(msg) {
+        if (msg.type === "room-snapshot") {
+          if (snapshotResolver) {
+            const r = snapshotResolver;
+            snapshotResolver = null;
+            r(msg);
+          }
+        } else if (msg.type === "peer-joined") {
+          logLine("signal: peer-joined");
+          if (role === "caller" && pc) {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            send("offer", { description: offer });
+            logLine("sent offer");
+          }
+        } else if (msg.type === "offer") {
+          logLine("signal: offer received");
+          await pc.setRemoteDescription(msg.description);
+          const ans = await pc.createAnswer();
+          await pc.setLocalDescription(ans);
+          send("answer", { description: ans });
+          logLine("sent answer");
+        } else if (msg.type === "answer") {
+          logLine("signal: answer received");
+          await pc.setRemoteDescription(msg.description);
+        } else if (msg.type === "ice-candidate" && msg.candidate) {
+          try {
+            await pc.addIceCandidate(msg.candidate);
+          } catch (e) {
+            logLine("addIceCandidate err: " + e.message);
+          }
+        } else if (msg.type === "error" || msg.type === "room-full") {
+          logLine("signal error: " + msg.code + " " + msg.message);
+        }
+      }
+
+      async function startPeek(camTrack) {
+        peekTrack = camTrack.clone();
+        logLine("caller: cloned camera track for source-timestamp peek");
+        const processor = new MediaStreamTrackProcessor({ track: peekTrack });
+        peekReader = processor.readable.getReader();
+        (async function () {
+          try {
+            while (sourceFrames.length < MAX_SAMPLES) {
+              const next = await peekReader.read();
+              if (next.done || !next.value) break;
+              const frame = next.value;
+              const idx = sourceFrames.length + 1;
+              sourceFrames.push({ idx: idx, timestamp: frame.timestamp });
+              srcCountEl.textContent = String(sourceFrames.length);
+              // Explicit comparison-friendly console line: visible alongside the
+              // worker's [H1 encoded #N …] lines so you can read them paired.
+              console.log(
+                "[H1 source #" + idx + "] VideoFrame.timestamp =",
+                frame.timestamp,
+              );
+              renderSource();
+              renderEncoded(); // refresh verdict / match marks
+              frame.close();
+            }
+            try {
+              peekReader.cancel();
+            } catch (_) {}
+            try {
+              peekTrack.stop();
+            } catch (_) {}
+            logLine(
+              "caller: source-timestamp peek complete (" +
+                sourceFrames.length +
+                " samples)",
+            );
+          } catch (e) {
+            logLine(
+              "peek loop err: " + (e && e.message ? e.message : String(e)),
+            );
+          }
+        })();
+      }
+
+      async function join() {
+        roomId = roomInput.value;
+        sourceFrames.length = 0;
+        encodedFrames.length = 0;
+        srcCountEl.textContent = "0";
+        encCountEl.textContent = "0";
+        joinBtn.disabled = true;
+        leaveBtn.disabled = false;
+        sigStateEl.textContent = "connecting";
+        setVerdict("waiting", "Connecting…", "Establishing WebSocket.");
+        logLine("connecting to " + sigUrlInput.value);
+
+        socket = new WebSocket(sigUrlInput.value);
+        await new Promise(function (resolve, reject) {
+          socket.addEventListener("open", resolve, { once: true });
+          socket.addEventListener(
+            "error",
+            function () {
+              reject(
+                new Error("signaling open failed (" + sigUrlInput.value + ")"),
+              );
+            },
+            { once: true },
+          );
+        });
+        sigStateEl.textContent = "open";
+        try {
+          localStorage.setItem(SIGNALING_LS_KEY, sigUrlInput.value);
+        } catch (_) {}
+        socket.addEventListener("close", function () {
+          sigStateEl.textContent = "closed";
+        });
+        socket.addEventListener("message", function (event) {
+          try {
+            handleSignal(JSON.parse(event.data));
+          } catch (_) {}
+        });
+
+        const snapPromise = new Promise(function (r) {
+          snapshotResolver = r;
+        });
+        send("join-room", { displayName: "h1" });
+        const snap = await snapPromise;
+        role = snap.self.role;
+        roleEl.textContent = role;
+        logLine("role: " + role);
+
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
+        pc.onicecandidate = function (e) {
+          if (e.candidate)
+            send("ice-candidate", { candidate: e.candidate.toJSON() });
+        };
+        pc.onconnectionstatechange = function () {
+          connStateEl.textContent = pc.connectionState;
+          logLine("connection: " + pc.connectionState);
+        };
+        pc.ontrack = function (event) {
+          logLine("ontrack " + event.track.kind);
+        };
+
+        worker = new Worker(workerUrl);
+        worker.onmessage = function (event) {
+          const m = event.data;
+          if (m.kind === "attached") {
+            logLine("worker: transformer attached as " + m.role);
+            return;
+          }
+          if (m.kind === "pipeline-error") {
+            logLine("worker pipeline error: " + m.error);
+            return;
+          }
+          if (m.kind === "frame") {
+            encodedFrames.push({
+              idx: m.count,
+              frameTimestamp: m.frameTimestamp,
+              metaTimestamp: m.metaTimestamp,
+              metaRtpTimestamp: m.metaRtpTimestamp,
+              metaCaptureTime: m.metaCaptureTime,
+              metaSenderCaptureTimeOffset: m.metaSenderCaptureTimeOffset,
+              type: m.type,
+            });
+            encCountEl.textContent = String(encodedFrames.length);
+            // Comparison-oriented console line. Looks up whether this encoded
+            // frame's meta.timestamp is present in the source-frame set captured
+            // by the cloned-track peek loop — that's the actual H1 check, done
+            // inline so you can read it in the Console without checking tables.
+            const srcSet = new Set(
+              sourceFrames.map(function (s) {
+                return s.timestamp;
+              }),
+            );
+            const match =
+              m.metaTimestamp != null && srcSet.has(m.metaTimestamp);
+            const matchedIdx = match
+              ? sourceFrames.find(function (s) {
+                  return s.timestamp === m.metaTimestamp;
+                }).idx
+              : null;
+            console.log(
+              "[H1 encoded #" + m.count + "]",
+              "frame.timestamp =",
+              m.frameTimestamp,
+              "| meta.timestamp =",
+              m.metaTimestamp,
+              "| meta.rtpTimestamp =",
+              m.metaRtpTimestamp,
+              "| meta.captureTime =",
+              m.metaCaptureTime,
+              "| meta.senderCaptureTimeOffset =",
+              m.metaSenderCaptureTimeOffset,
+              "| type =",
+              m.type,
+              "| MATCH source #" + (matchedIdx || "—") + ":",
+              match ? "✅" : "❌",
+            );
+            // On the first encoded frame, also dump a compact pairing table so
+            // a single glance at the Console shows the two streams side by side.
+            if (encodedFrames.length === 1 && sourceFrames.length > 0) {
+              console.groupCollapsed(
+                "[H1] First encoded frame received — current source/encoded snapshot",
+              );
+              console.table(
+                sourceFrames.slice(0, 8).map(function (s, i) {
+                  const e = encodedFrames[i];
+                  return {
+                    idx: s.idx,
+                    "source.VideoFrame.timestamp": s.timestamp,
+                    "encoded.meta.timestamp": e ? e.metaTimestamp : "—",
+                    "encoded.meta.rtpTimestamp": e ? e.metaRtpTimestamp : "—",
+                    "encoded.meta.captureTime": e ? (e.metaCaptureTime == null ? "—" : e.metaCaptureTime) : "—",
+                    "encoded.meta.senderCaptureTimeOffset": e ? (e.metaSenderCaptureTimeOffset == null ? "—" : e.metaSenderCaptureTimeOffset) : "—",
+                    diff:
+                      e && e.metaTimestamp != null
+                        ? e.metaTimestamp - s.timestamp
+                        : "—",
+                  };
+                }),
+              );
+              console.groupEnd();
+            }
+            renderEncoded();
+          }
+        };
+
+        if (role === "caller") {
+          camStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+          const camTrack = camStream.getVideoTracks()[0];
+          logLine(
+            "caller: camera settings: " +
+              JSON.stringify(camTrack.getSettings()),
+          );
+
+          // 1. Start side-channel peek BEFORE adding to PC, so we capture the first
+          //    source frame timestamps as soon as the camera produces them.
+          await startPeek(camTrack);
+
+          // 2. Canonical pattern: pc.addTrack with the ORIGINAL camera track.
+          const sender = pc.addTrack(camTrack, camStream);
+          sender.transform = new RTCRtpScriptTransform(worker, {
+            role: "sender",
+          });
+          logLine("caller: pc.addTrack + sender.transform attached");
+
+          // =========================================================================
+          // 【核心修改点】：强制剔除硬件编码器，仅保留 VP8 强制走软编
+          // 只有在软编管线下，C++ 底层才不会把 capture_time_identifier (timestamp) 丢弃
+          // =========================================================================
+          const videoCaps = RTCRtpSender.getCapabilities("video");
+          if (videoCaps && videoCaps.codecs) {
+            // 过滤出所有支持的 VP8 编解码器配置
+            const vp8Codecs = videoCaps.codecs.filter(
+              (codec) => codec.mimeType.toLowerCase() === "video/vp8",
+            );
+
+            if (vp8Codecs.length > 0) {
+              // 找到当前 track 对应的 transceiver，并覆盖它的编解码器偏好
+              const transceiver = pc
+                .getTransceivers()
+                .find((t) => t.sender === sender);
+              if (transceiver) {
+                transceiver.setCodecPreferences(vp8Codecs);
+                logLine("caller: [EXPERIMENTAL] 强制设置 codec 偏好为 VP8");
+              }
+            } else {
+              logLine("caller: 未找到 VP8 编解码器，无法强制降级");
+            }
+          }
+
+          if (snap.peer) {
+            logLine("peer already present → drive offer now");
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            send("offer", { description: offer });
+          }
+
+          statsTimer = setInterval(async function () {
+            const stats = await pc.getStats();
+            let enc = null;
+            stats.forEach(function (s) {
+              if (
+                s.type === "outbound-rtp" &&
+                s.kind === "video" &&
+                s.encoderImplementation
+              )
+                enc = s.encoderImplementation;
+            });
+            encoderImplEl.textContent = enc ? "encoder=" + enc : "—";
+          }, 2000);
+        } else {
+          const rx = pc.addTransceiver("video", { direction: "recvonly" });
+          rx.receiver.transform = new RTCRtpScriptTransform(worker, {
+            role: "receiver",
+          });
+          logLine("answerer: receiver.transform attached");
+
+          statsTimer = setInterval(async function () {
+            const stats = await pc.getStats();
+            let dec = null;
+            stats.forEach(function (s) {
+              if (
+                s.type === "inbound-rtp" &&
+                s.kind === "video" &&
+                s.decoderImplementation
+              )
+                dec = s.decoderImplementation;
+            });
+            encoderImplEl.textContent = dec ? "decoder=" + dec : "—";
+          }, 2000);
+        }
+      }
+
+      function leave() {
+        if (statsTimer) clearInterval(statsTimer);
+        try {
+          if (peekReader) peekReader.cancel();
+        } catch (_) {}
+        try {
+          if (peekTrack) peekTrack.stop();
+        } catch (_) {}
+        try {
+          if (socket) socket.close();
+        } catch (_) {}
+        try {
+          if (pc) pc.close();
+        } catch (_) {}
+        try {
+          if (worker) worker.terminate();
+        } catch (_) {}
+        try {
+          if (camStream)
+            camStream.getTracks().forEach(function (t) {
+              t.stop();
+            });
+        } catch (_) {}
+        joinBtn.disabled = false;
+        leaveBtn.disabled = true;
+        logLine("left");
+      }
+
+      joinBtn.addEventListener("click", function () {
+        join().catch(function (e) {
+          logLine("FATAL: " + (e && e.message ? e.message : String(e)));
+        });
       });
-      encoderImplEl.textContent = enc ? ('encoder=' + enc) : '—';
-    }, 2000);
-  } else {
-    const rx = pc.addTransceiver('video', { direction: 'recvonly' });
-    rx.receiver.transform = new RTCRtpScriptTransform(worker, { role: 'receiver' });
-    logLine('answerer: receiver.transform attached');
-
-    statsTimer = setInterval(async function () {
-      const stats = await pc.getStats();
-      let dec = null;
-      stats.forEach(function (s) {
-        if (s.type === 'inbound-rtp' && s.kind === 'video' && s.decoderImplementation) dec = s.decoderImplementation;
-      });
-      encoderImplEl.textContent = dec ? ('decoder=' + dec) : '—';
-    }, 2000);
-  }
-}
-
-function leave() {
-  if (statsTimer) clearInterval(statsTimer);
-  try { if (peekReader) peekReader.cancel(); } catch (_) {}
-  try { if (peekTrack) peekTrack.stop(); } catch (_) {}
-  try { if (socket) socket.close(); } catch (_) {}
-  try { if (pc) pc.close(); } catch (_) {}
-  try { if (worker) worker.terminate(); } catch (_) {}
-  try { if (camStream) camStream.getTracks().forEach(function (t) { t.stop(); }); } catch (_) {}
-  joinBtn.disabled = false;
-  leaveBtn.disabled = true;
-  logLine('left');
-}
-
-joinBtn.addEventListener('click', function () {
-  join().catch(function (e) { logLine('FATAL: ' + (e && e.message ? e.message : String(e))); });
-});
-leaveBtn.addEventListener('click', leave);
-</script>
-
-</body>
+      leaveBtn.addEventListener("click", leave);
+    </script>
+  </body>
 </html>
