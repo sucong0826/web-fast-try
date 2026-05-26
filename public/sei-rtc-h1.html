@@ -185,11 +185,19 @@ function send(type, payload) {
   }, payload || {})));
 }
 
+function usToMs(us) {
+  if (us == null) return '—';
+  // Show as ms with 3 decimal places so no μs precision is lost visually.
+  return (us / 1000).toFixed(3);
+}
+
 function renderSource() {
   if (sourceFrames.length === 0) { sourceTableEl.textContent = '— (caller only)'; return; }
-  let html = '<table><thead><tr><th>idx</th><th>VideoFrame.timestamp (μs)</th></tr></thead><tbody>';
+  let html = '<table><thead><tr>'
+    + '<th>idx</th><th>VideoFrame.timestamp (μs)</th><th>= (ms)</th>'
+    + '</tr></thead><tbody>';
   sourceFrames.forEach(function (s) {
-    html += '<tr><td>' + s.idx + '</td><td>' + s.timestamp + '</td></tr>';
+    html += '<tr><td>' + s.idx + '</td><td>' + s.timestamp + '</td><td>' + usToMs(s.timestamp) + '</td></tr>';
   });
   html += '</tbody></table>';
   sourceTableEl.innerHTML = html;
@@ -199,7 +207,7 @@ function renderEncoded() {
   if (encodedFrames.length === 0) { encodedTableEl.textContent = '— (waits until transform() fires)'; return; }
   const srcSet = new Set(sourceFrames.map(function (s) { return s.timestamp; }));
   let html = '<table><thead><tr>'
-    + '<th>idx</th><th>frame.ts (RTP-ish)</th><th>meta.timestamp</th><th>meta.rtpTs</th><th>type</th><th>match</th>'
+    + '<th>idx</th><th>frame.ts</th><th>meta.timestamp (μs)</th><th>= (ms)</th><th>meta.rtpTs</th><th>type</th><th>match</th>'
     + '</tr></thead><tbody>';
   encodedFrames.forEach(function (e) {
     const matched = e.metaTimestamp != null && srcSet.has(e.metaTimestamp);
@@ -207,6 +215,7 @@ function renderEncoded() {
       + '<td>' + e.idx + '</td>'
       + '<td>' + e.frameTimestamp + '</td>'
       + '<td class="' + (matched ? 'match' : 'miss') + '">' + (e.metaTimestamp == null ? '—' : e.metaTimestamp) + '</td>'
+      + '<td>' + usToMs(e.metaTimestamp) + '</td>'
       + '<td>' + (e.metaRtpTimestamp == null ? '—' : e.metaRtpTimestamp) + '</td>'
       + '<td>' + e.type + '</td>'
       + '<td>' + (matched ? '✓' : '✗') + '</td>'
