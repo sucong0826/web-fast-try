@@ -262,6 +262,40 @@
         sigUrlInput.value = resolved;
       })();
 
+      // Enables the absolute-capture-time RTP header extension on a
+      // transceiver if Chrome supports the setHeaderExtensionsToNegotiate API.
+      // Must be called BEFORE createOffer (caller) or BEFORE createAnswer
+      // (answerer, i.e. after setRemoteDescription). Returns true if the
+      // extension was successfully toggled to sendrecv.
+      const ABS_CAPTURE_TIME_URI =
+        "http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time";
+      function enableAbsoluteCaptureTime(transceiver, label) {
+        try {
+          if (typeof transceiver.getHeaderExtensionsToNegotiate !== "function") {
+            logLine(label + ": setHeaderExtensionsToNegotiate API not available in this Chrome");
+            return false;
+          }
+          const exts = transceiver.getHeaderExtensionsToNegotiate();
+          let found = false;
+          for (const ext of exts) {
+            if (ext.uri && ext.uri.indexOf("abs-capture-time") >= 0) {
+              ext.direction = "sendrecv";
+              found = true;
+            }
+          }
+          if (!found) {
+            logLine(label + ": abs-capture-time NOT in this Chrome's supported extension list");
+            return false;
+          }
+          transceiver.setHeaderExtensionsToNegotiate(exts);
+          logLine(label + ": enabled abs-capture-time header extension (sendrecv)");
+          return true;
+        } catch (e) {
+          logLine(label + ": enableAbsoluteCaptureTime failed: " + (e && e.message ? e.message : String(e)));
+          return false;
+        }
+      }
+
       function logLine(msg) {
         const t = new Date().toISOString().slice(11, 23);
         logEl.textContent += t + "  " + msg + "\n";
@@ -843,6 +877,16 @@
           });
           logLine("caller: pc.addTrack + sender.transform attached");
 
+          // Enable the abs-capture-time RTP header extension so the SDP we
+          // are about to send (in createOffer) advertises it and Chrome
+          // populates meta.captureTime on every encoded frame. Must run
+          // BEFORE createOffer.
+          const callerTransceiver = pc
+            .getTransceivers()
+            .find((t) => t.sender === sender);
+          if (callerTransceiver)
+            enableAbsoluteCaptureTime(callerTransceiver, "caller");
+
           // =========================================================================
           // 【核心修改点】：强制剔除硬件编码器，仅保留 VP8 强制走软编
           // 只有在软编管线下，C++ 底层才不会把 capture_time_identifier (timestamp) 丢弃
@@ -894,6 +938,11 @@
             role: "receiver",
           });
           logLine("answerer: receiver.transform attached");
+
+          // Same abs-capture-time enablement on the answerer side so the
+          // answer SDP includes the extension and the receiver-side
+          // metadata also carries captureTime.
+          enableAbsoluteCaptureTime(rx, "answerer");
 
           statsTimer = setInterval(async function () {
             const stats = await pc.getStats();
