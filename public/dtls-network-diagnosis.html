@@ -1,0 +1,1875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔍 WebRTC DTLS 网络环境诊断工具</title>
+<style>
+  :root {
+    --bg: #faf9ff; --surface: #ffffff; --border: #ede9f8;
+    --text: #0f0e1a; --muted: #6e6a85; --accent: #7c3aed;
+    --pass: #16a34a; --fail: #dc2626; --warn: #d97706; --info: #6e6a85;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6; padding: 20px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.6em; letter-spacing: -0.02em; margin-bottom: 4px; }
+  h2 { font-size: 1.05em; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .subtitle { color: var(--muted); font-size: 0.9em; margin-bottom: 20px; }
+
+  /* Test card */
+  .test-grid { display: flex; flex-direction: column; gap: 10px; }
+  .test-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px;
+    box-shadow: 0 1px 2px rgba(15, 14, 26, 0.04); transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .test-card.running { border-color: var(--accent); }
+  .test-card.pass { border-color: var(--pass); }
+  .test-card.fail { border-color: var(--fail); }
+  .test-card.warn { border-color: var(--warn); }
+
+  .test-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .test-name { font-weight: 600; font-size: 0.95em; }
+  .test-status {
+    font-size: 0.8em; padding: 2px 10px; border-radius: 12px;
+    font-weight: 600; white-space: nowrap;
+  }
+  .status-pending { background: #f3f1fb; color: var(--muted); }
+  .status-running { background: #f0ebff; color: var(--accent); }
+  .status-pass { background: #ecfdf3; color: var(--pass); }
+  .status-fail { background: #fef2f2; color: var(--fail); }
+  .status-warn { background: #fff7ed; color: var(--warn); }
+
+  .test-detail {
+    margin-top: 10px; font-size: 0.85em; color: var(--muted);
+    max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
+  }
+  .test-card.running .test-detail,
+  .test-card.pass .test-detail,
+  .test-card.fail .test-detail,
+  .test-card.warn .test-detail { max-height: 900px; overflow-y: auto; }
+
+  .test-detail table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .test-detail td { padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 0.82em; }
+  .test-detail td:first-child { color: var(--muted); width: 180px; white-space: nowrap; }
+  .test-detail .val-pass { color: var(--pass); }
+  .test-detail .val-fail { color: var(--fail); }
+  .test-detail .val-warn { color: var(--warn); }
+
+  pre { background: #f7f6fb; border: 1px solid var(--border); border-radius: 8px;
+       padding: 12px; font-size: 0.78em; overflow-x: auto; margin-top: 8px;
+       max-height: 300px; overflow-y: auto; }
+
+  /* Button */
+  .btn {
+    display: inline-block; padding: 10px 28px; border-radius: 6px;
+    font-size: 0.95em; font-weight: 600; cursor: pointer; border: none;
+    background: #7c3aed; color: #fff; transition: background 0.2s, transform 0.2s;
+  }
+  .btn:hover { background: #6d28d9; transform: translateY(-1px); }
+  .btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+  .btn-secondary { background: #f3f1fb; color: var(--text); }
+  .btn-secondary:hover { background: #e9e5f6; }
+
+  .btn-row { display: flex; gap: 10px; margin: 16px 0; flex-wrap: wrap; }
+
+  /* Timeline */
+  .timeline { margin-top: 10px; font-size: 0.8em; }
+  .timeline-entry { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid #1c2129; }
+  .timeline-time { color: var(--accent); min-width: 85px; font-family: monospace; }
+  .timeline-msg { color: var(--muted); }
+
+  /* Summary */
+  .summary { display: flex; gap: 16px; margin: 16px 0; flex-wrap: wrap; }
+  .summary-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px; flex: 1; min-width: 150px; text-align: center;
+    box-shadow: 0 1px 2px rgba(15, 14, 26, 0.04);
+  }
+  .summary-card .num { font-size: 2em; font-weight: 700; }
+  .summary-card .label { font-size: 0.8em; color: var(--muted); margin-top: 4px; }
+
+  .recommendation {
+    background: #f5f3ff; border-left: 3px solid var(--accent);
+    padding: 12px 16px; border-radius: 0 10px 10px 0; margin-top: 12px; font-size: 0.85em;
+  }
+  .recommendation.fail { border-left-color: var(--fail); background: #fef2f2; }
+  .recommendation.warn { border-left-color: var(--warn); background: #fff7ed; }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0e12; --surface: #18181e; --border: rgba(255, 255, 255, 0.08);
+      --text: #f1f0f6; --muted: #a7a4b5; --accent: #a78bfa;
+      --pass: #4ade80; --fail: #f87171; --warn: #fbbf24; --info: #a7a4b5;
+    }
+    .status-pending { background: #282634; }
+    .status-running { background: #2e2651; }
+    .status-pass { background: #153d28; }
+    .status-fail { background: #451c24; }
+    .status-warn { background: #482f13; }
+    pre { background: #111117; }
+    .btn-secondary { background: #282634; color: var(--text); }
+    .btn-secondary:hover { background: #393646; }
+    .recommendation { background: #27213f; }
+    .recommendation.fail { background: #391c24; }
+    .recommendation.warn { background: #3c2913; }
+  }
+
+  @media (max-width: 600px) {
+    body { padding: 10px; }
+    .test-detail td:first-child { width: 120px; }
+    .summary { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>🔍 WebRTC DTLS 网络环境诊断工具</h1>
+<p class="subtitle">
+  全面检测可能影响 DTLS 握手完成的网络条件、浏览器策略和协议兼容性。
+  适用于排查 "ICE 已连接但 DTLS 握手未完成" 类故障。
+</p>
+
+<div class="btn-row">
+  <button class="btn" id="btnRunAll" onclick="runAllTests()">▶ 运行全部诊断</button>
+  <button class="btn btn-secondary" id="btnExport" onclick="exportResults()" disabled>📋 导出诊断报告</button>
+  <button class="btn btn-secondary" onclick="location.reload()">🔄 重置</button>
+</div>
+
+<div class="config-row" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+  <div style="font-weight:600;font-size:0.9em;margin-bottom:8px;">⚙️ 高级配置（可选）</div>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:0.85em;">
+    <input id="turnServer" type="text" placeholder="TURN 服务器地址，如 turn:user:pass@turn.example.com:3478"
+           style="flex:1;min-width:280px;background:#0d1117;border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);">
+    <label style="display:flex;align-items:center;gap:6px;color:var(--muted);">
+      <input type="checkbox" id="useTurn" checked> 使用 TURN 测试真实 UDP 路径 MTU 与丢包
+    </label>
+  </div>
+  <div style="color:var(--muted);font-size:0.75em;margin-top:8px;">
+    💡 填入你的生产 TURN 服务器后，丢包测试和 MTU 测试将走真实公网路径，结果更接近生产故障复现。
+  </div>
+</div>
+
+<div class="summary" id="summary" style="display:none;">
+  <div class="summary-card"><div class="num" style="color:var(--pass);" id="cntPass">0</div><div class="label">✅ 通过</div></div>
+  <div class="summary-card"><div class="num" style="color:var(--fail);" id="cntFail">0</div><div class="label">❌ 失败</div></div>
+  <div class="summary-card"><div class="num" style="color:var(--warn);" id="cntWarn">0</div><div class="label">⚠️ 警告</div></div>
+  <div class="summary-card"><div class="num" style="color:var(--accent);" id="cntTotal">0</div><div class="label">📊 总计</div></div>
+</div>
+
+<h2>📋 诊断项目</h2>
+<div class="test-grid" id="testGrid"></div>
+
+<h2>📜 时间线</h2>
+<div class="timeline" id="timeline"></div>
+
+</div>
+
+<script>
+// ========== 全局状态 ==========
+const results = {};          // testId → { status, detail, duration }
+const timeline = [];         // [{ time, msg }]
+let loopbackPC1 = null, loopbackPC2 = null;
+let lastRTCErrors = [];      // 收集所有 RTCError（用于 DTLS 失败根因分析）
+const CONFIG = {
+  get turnServer() { return document.getElementById('turnServer')?.value.trim() || ''; },
+  get useTurn() { return document.getElementById('useTurn')?.checked ?? true; },
+};
+
+// DTLS Alert 码 → 人类可读原因（RFC 5246 §7.2 / RFC 6347）
+const DTLS_ALERTS = {
+  10: 'unexpected_message — 收到意外的握手消息',
+  20: 'bad_record_mac — 记录 MAC 校验失败（可能是中间人篡改）',
+  21: 'decryption_failed — 解密失败',
+  22: 'record_overflow — 记录长度超限',
+  30: 'decompression_failure — 解压失败',
+  40: 'handshake_failure — 握手失败（无共同参数，常见于版本/套件不兼容）',
+  41: 'no_certificate — 未提供证书',
+  42: 'bad_certificate — 证书损坏或被篡改（TLS 中间人常见症状！）',
+  43: 'unsupported_certificate — 不支持的证书类型',
+  44: 'certificate_revoked — 证书被吊销',
+  45: 'certificate_expired — 证书已过期',
+  46: 'certificate_unknown — 证书未知',
+  47: 'illegal_parameter — 非法参数',
+  48: 'unknown_ca — 未知 CA（DTLS 自签证书被中间人检查时常见）',
+  49: 'access_denied — 访问被拒绝',
+  50: 'decode_error — 消息解码失败（数据被截断/篡改，常见于 MTU 黑洞）',
+  51: 'decrypt_error — 解密错误（数据被篡改）',
+  60: 'export_restriction — 出口限制',
+  70: 'protocol_version — 协议版本不匹配（DTLS 1.0/1.2/1.3 协商失败）',
+  71: 'insufficient_security — 安全级别不足',
+  80: 'user_canceled — 用户取消',
+  90: 'user_canceled — 用户取消',
+  109: 'missing_extension — 缺少扩展',
+  110: 'unsupported_extension — 不支持的扩展',
+  112: 'unrecognized_name — 无法识别的名称',
+  115: 'certificate_required — 需要证书',
+  116: 'no_application_protocol — 无匹配应用协议',
+  120: 'no_application_protocol — 无匹配应用协议',
+};
+
+function decodeDTLSAlert(alertNum) {
+  if (alertNum === undefined || alertNum === null) return '未知告警码';
+  return DTLS_ALERTS[alertNum] || `告警码 ${alertNum}（未收录，见 RFC 5246）`;
+}
+
+// 为 PeerConnection 挂载 RTCError 监听——这是获取 "DTLS 为什么失败" 的关键 API！
+// RTCError.errorDetail === 'dtls-failure' 时，receivedAlert 携带 DTLS alert 码
+function addRTCErrorListener(pc, label) {
+  try {
+    pc.onerror = (event) => {
+      const err = event.error;
+      const entry = {
+        label,
+        time: new Date().toISOString().substring(11, 23),
+        errorDetail: err?.errorDetail || 'unknown',
+        receivedAlert: err?.receivedAlert ?? null,
+        receivedAlertText: err?.receivedAlert !== undefined && err?.receivedAlert !== null
+          ? decodeDTLSAlert(err.receivedAlert) : '',
+        sctpCauseCode: err?.sctpCauseCode ?? null,
+        message: err?.message || '',
+      };
+      lastRTCErrors.push(entry);
+      addTimeline(`🚨 [${label}] RTCError: errorDetail=${entry.errorDetail} receivedAlert=${entry.receivedAlert ?? 'N/A'}${entry.receivedAlertText ? ' (' + entry.receivedAlertText + ')' : ''}`);
+    };
+  } catch (e) {
+    addTimeline(`⚠️ [${label}] 无法挂载 RTCError 监听: ${e.message}`);
+  }
+}
+
+function addTimeline(msg) {
+  const now = new Date();
+  const time = now.toISOString().substring(11, 23);
+  timeline.push({ time, msg });
+  const el = document.getElementById('timeline');
+  el.innerHTML += `<div class="timeline-entry"><span class="timeline-time">${time}</span><span class="timeline-msg">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateTestUI(testId, status, detailHTML) {
+  const card = document.getElementById(`card-${testId}`);
+  if (!card) return;
+  card.className = `test-card ${status}`;
+
+  const statusEl = card.querySelector('.test-status');
+  const labelMap = { pending: '⏳ 等待', running: '🔄 运行中', pass: '✅ 通过', fail: '❌ 失败', warn: '⚠️ 警告' };
+  const clsMap = { pending: 'status-pending', running: 'status-running', pass: 'status-pass', fail: 'status-fail', warn: 'status-warn' };
+  statusEl.textContent = labelMap[status] || status;
+  statusEl.className = `test-status ${clsMap[status]}`;
+
+  if (detailHTML) {
+    const detailEl = card.querySelector('.test-detail');
+    detailEl.innerHTML = detailHTML;
+  }
+
+  results[testId] = { status, detail: detailHTML, duration: 0 };
+  updateSummary();
+}
+
+function updateSummary() {
+  const vals = Object.values(results);
+  let pass = 0, fail = 0, warn = 0;
+  vals.forEach(r => { if (r.status === 'pass') pass++; if (r.status === 'fail') fail++; if (r.status === 'warn') warn++; });
+  document.getElementById('cntPass').textContent = pass;
+  document.getElementById('cntFail').textContent = fail;
+  document.getElementById('cntWarn').textContent = warn;
+  document.getElementById('cntTotal').textContent = vals.length;
+  document.getElementById('summary').style.display = 'flex';
+  document.getElementById('btnExport').disabled = false;
+}
+
+// ========== 测试定义 ==========
+const tests = [
+  { id: 'webrtc-api',       name: 'WebRTC API 可用性',           desc: '检测 RTCPeerConnection 等核心 API 是否存在' },
+  { id: 'ice-candidates',   name: 'ICE 候选收集',                desc: '收集所有类型的 ICE 候选（host/srflx/relay/tcp）' },
+  { id: 'udp-socket',       name: 'UDP 套接字能力',              desc: '通过 STUN 请求验证浏览器能否成功发送/接收 UDP 包' },
+  { id: 'packet-loss',      name: '📉 真实丢包率测量',           desc: '通过多次 STUN 往返 + ICE 统计计算真实网络丢包率（DTLS 握手失败的常见根因）' },
+  { id: 'dtls-local',       name: '本地 DTLS 握手（Loopback）',  desc: '在同一页面内创建两个 PeerConnection 完成 DTLS 握手，并捕获 RTCError 告警码' },
+  { id: 'mtu-probe',        name: '路径 MTU 探测',               desc: 'DataChannel(SCTP路径) + 可选 TURN Send Indication(真实UDP路径) 双轨检测' },
+  { id: 'tls-version',      name: 'TLS/DTLS 版本支持',           desc: '检测浏览器支持的 DTLS 版本和加密套件' },
+  { id: 'policy-check',     name: '浏览器策略检测',              desc: '检测可能影响 WebRTC 的企业策略（含 Island Browser 专项）' },
+  { id: 'extension-audit',  name: '🔌 企业扩展审查',             desc: '检测强制安装的浏览器扩展（TLS 中间人/网络拦截/DLP）' },
+  { id: 'media-permission', name: '🎥 媒体权限 & 域名白名单',     desc: '检测 getUserMedia 是否被企业策略限制（AudioCapture/VideoCaptureAllowedUrls）' },
+  { id: 'enterprise-policy',name: '🏢 企业策略专项（Island/Chrome）', desc: '检测 URLBlocklist、DevTools 封锁等企业级限制' },
+  { id: 'network-type',     name: '网络类型识别',                desc: '通过 ICE 候选推断网络环境（VPN/企业网/家庭网）' },
+  { id: 'cert-fingerprint', name: 'DTLS 证书指纹验证',           desc: '验证浏览器生成的 DTLS 证书指纹格式正确' },
+  { id: 'connection-speed', name: '端到端连接耗时',              desc: '测量 ICE+DTLS 完整握手的时间' },
+  { id: 'dtls-failure-analysis', name: '🧠 DTLS 失败根因分析',   desc: '综合 RTCError 告警码 + 各测试结果，输出失败原因排序与行动建议' },
+];
+
+// 渲染测试卡片
+const grid = document.getElementById('testGrid');
+tests.forEach(t => {
+  grid.innerHTML += `
+    <div class="test-card" id="card-${t.id}">
+      <div class="test-header">
+        <span class="test-name">${t.name}</span>
+        <span class="test-status status-pending">⏳ 等待</span>
+      </div>
+      <div class="test-detail"><em>${t.desc}</em></div>
+    </div>`;
+});
+
+addTimeline('📄 诊断页面已加载，等待运行');
+
+// ========== 测试函数 ==========
+
+// 1. WebRTC API 可用性
+async function testWebRTCAPI() {
+  updateTestUI('webrtc-api', 'running');
+  const checks = {};
+  checks['RTCPeerConnection'] = typeof RTCPeerConnection !== 'undefined';
+  checks['webkitRTCPeerConnection'] = typeof webkitRTCPeerConnection !== 'undefined';
+  checks['RTCSessionDescription'] = typeof RTCSessionDescription !== 'undefined';
+  checks['RTCIceCandidate'] = typeof RTCIceCandidate !== 'undefined';
+  checks['MediaDevices'] = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  checks['RTCDataChannel'] = typeof RTCDataChannelEvent !== 'undefined';
+
+  const allOk = Object.values(checks).every(v => v);
+  const detail = Object.entries(checks).map(([k, v]) =>
+    `<tr><td>${k}</td><td class="${v ? 'val-pass' : 'val-fail'}">${v ? '✅ 可用' : '❌ 不可用'}</td></tr>`
+  ).join('');
+  updateTestUI('webrtc-api', allOk ? 'pass' : 'fail', `<table>${detail}</table>`);
+  return allOk;
+}
+
+// 2. ICE 候选收集
+async function testICECandidates() {
+  updateTestUI('ice-candidates', 'running');
+  return new Promise(resolve => {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    const candidates = { host: 0, srflx: 0, relay: 0, tcp: 0, other: 0 };
+    let gathered = false;
+
+    const timeout = setTimeout(() => {
+      if (!gathered) {
+        pc.close();
+        const detail = `<tr><td colspan="2" class="val-fail">❌ 候选收集超时（5秒内未收到任何候选）→ UDP 可能被完全阻断</td></tr>`;
+        updateTestUI('ice-candidates', 'fail', `<table>${detail}</table>`);
+        addTimeline('⚠️ ICE 候选收集超时：浏览器无法打开 UDP 端口');
+        resolve(false);
+      }
+    }, 5000);
+
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) {
+        gathered = true;
+        clearTimeout(timeout);
+        pc.close();
+        const detail = Object.entries(candidates).map(([k, v]) => {
+          let cls = 'val-pass';
+          if ((k === 'srflx' || k === 'relay') && v === 0) cls = 'val-warn';
+          if (k === 'host' && v === 0) cls = 'val-fail';
+          return `<tr><td>${k} 候选</td><td class="${cls}">${v} 个</td></tr>`;
+        }).join('');
+
+        const hasHost = candidates.host > 0;
+        const hasSrflx = candidates.srflx > 0;
+        const status = hasHost ? (hasSrflx ? 'pass' : 'warn') : 'fail';
+
+        addTimeline(`📡 ICE 候选: host=${candidates.host} srflx=${candidates.srflx} relay=${candidates.relay}`);
+        updateTestUI('ice-candidates', status, `<table>${detail}</table>`);
+        resolve(status !== 'fail');
+        return;
+      }
+      const type = e.candidate.candidate.split(' ')[7] || 'other';
+      const proto = e.candidate.candidate.includes('tcp') ? 'tcp' : 'udp';
+      if (candidates[type] !== undefined) candidates[type]++;
+      else candidates.other++;
+      // 也追踪 TCP 候选
+      if (proto === 'tcp') candidates.tcp++;
+    };
+
+    pc.onicegatheringstatechange = () => {
+      addTimeline(`🧊 ICE 收集状态: ${pc.iceGatheringState}`);
+    };
+
+    pc.createDataChannel('probe');
+    pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {
+      clearTimeout(timeout);
+      pc.close();
+      updateTestUI('ice-candidates', 'fail',
+        '<table><tr><td colspan="2" class="val-fail">❌ 无法创建 offer → WebRTC 被完全禁用</td></tr></table>');
+      resolve(false);
+    });
+  });
+}
+
+// 3. UDP 套接字能力（STUN 请求）
+async function testUDPSocket() {
+  updateTestUI('udp-socket', 'running');
+  // 使用多个 STUN 服务器测试，模拟真实 DTLS 场景中的多路径
+  const servers = [
+    'stun.l.google.com:19302',
+    'stun1.l.google.com:19302',
+  ];
+
+  let results = [];
+  for (const server of servers) {
+    const start = performance.now();
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: `stun:${server}` }] });
+      const result = await new Promise((resolve) => {
+        const t = setTimeout(() => resolve({ server, ok: false, time: -1, reason: 'timeout' }), 3000);
+        pc.onicecandidate = (e) => {
+          if (e.candidate && e.candidate.candidate.includes('srflx')) {
+            clearTimeout(t);
+            const elapsed = (performance.now() - start).toFixed(0);
+            pc.close();
+            resolve({ server, ok: true, time: elapsed, reason: '' });
+          }
+        };
+        pc.createDataChannel('udp-test');
+        pc.createOffer().then(o => pc.setLocalDescription(o));
+        // 如果 2 秒内没有 srflx 候选，也算失败
+        setTimeout(() => {
+          if (!results.find(r => r.server === server)) {
+            clearTimeout(t);
+            pc.close();
+            resolve({ server, ok: false, time: -1, reason: 'no-srflx' });
+          }
+        }, 2000);
+      });
+      results.push(result);
+    } catch (e) {
+      results.push({ server, ok: false, time: -1, reason: e.message });
+    }
+  }
+
+  const anyOk = results.some(r => r.ok);
+  const detail = results.map(r =>
+    `<tr><td>${r.server}</td><td class="${r.ok ? 'val-pass' : 'val-fail'}">${r.ok ? `✅ ${r.time}ms` : `❌ ${r.reason}`}</td></tr>`
+  ).join('');
+
+  addTimeline(`📦 UDP STUN 探测: ${results.map(r => r.server + '=' + (r.ok ? 'OK' : 'FAIL')).join(', ')}`);
+  updateTestUI('udp-socket', anyOk ? 'pass' : 'fail', `<table>${detail}</table>`);
+  return anyOk;
+}
+
+// 3b. 📉 真实丢包率测量
+// 为什么重要：DTLS 握手消息（ServerCertificate 2-4KB）远大于 ICE 的 STUN 包（~20B）。
+// ICE 能通不代表握手消息能到——丢包率是 "ICE 通但 DTLS 卡住" 的第二大根因。
+async function testPacketLoss() {
+  updateTestUI('packet-loss', 'running');
+  addTimeline('📉 开始真实丢包率测量（STUN 往返 ×10 + ICE 统计）...');
+
+  const servers = ['stun.l.google.com:19302', 'stun1.l.google.com:19302', 'stun2.l.google.com:19302'];
+  const ATTEMPTS = 10;  // 每服务器 10 次 STUN 往返
+  const allTrials = []; // [{ server, attempt, ok, timeMs }]
+  const pairStats = []; // ICE candidate-pair 统计
+
+  // ---- 方法 1：重复 STUN 往返，直接统计真实 UDP 丢包 ----
+  for (const server of servers) {
+    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+      const start = performance.now();
+      let ok = false;
+      let timeMs = -1;
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: `stun:${server}` }] });
+        ok = await new Promise(resolve => {
+          const t = setTimeout(() => { pc.close(); resolve(false); }, 2500);
+          pc.onicecandidate = (e) => {
+            if (e.candidate && e.candidate.candidate.includes('srflx')) {
+              clearTimeout(t);
+              pc.close();
+              resolve(true);
+            }
+          };
+          pc.createDataChannel('loss-test');
+          pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => resolve(false));
+        });
+        if (ok) {
+          timeMs = (performance.now() - start).toFixed(0);
+          // 尝试读取 candidate-pair 的 requestsSent/responsesReceived
+          try {
+            const pc2 = new RTCPeerConnection({ iceServers: [{ urls: `stun:${server}` }] });
+            await new Promise(r => {
+              pc2.onicecandidate = (e) => { if (e.candidate?.candidate.includes('srflx')) r(); };
+              pc2.createDataChannel('x');
+              pc2.createOffer().then(o => pc2.setLocalDescription(o));
+              setTimeout(r, 2500);
+            });
+            const stats = await pc2.getStats();
+            stats.forEach(rpt => {
+              if (rpt.type === 'candidate-pair' && rpt.remoteCandidateId) {
+                pairStats.push({
+                  server,
+                  requestsSent: rpt.requestsSent,
+                  responsesReceived: rpt.responsesReceived,
+                  state: rpt.state,
+                });
+              }
+            });
+            pc2.close();
+          } catch(e) {}
+        }
+      } catch(e) {}
+      allTrials.push({ server, attempt, ok, timeMs });
+    }
+  }
+
+  // ---- 汇总统计 ----
+  const totalTrials = allTrials.length;
+  const okTrials = allTrials.filter(t => t.ok).length;
+  const lossRate = totalTrials > 0 ? (1 - okTrials / totalTrials) : 1;
+
+  // 按服务器统计
+  const byServer = {};
+  allTrials.forEach(t => {
+    byServer[t.server] = byServer[t.server] || { ok: 0, total: 0 };
+    byServer[t.server].total++;
+    if (t.ok) byServer[t.server].ok++;
+  });
+  const serverDetail = Object.entries(byServer).map(([s, v]) => {
+    const loss = (1 - v.ok / v.total) * 100;
+    return `<tr><td>${s}</td><td class="${loss > 10 ? 'val-fail' : loss > 2 ? 'val-warn' : 'val-pass'}">${v.ok}/${v.total} 成功 | 丢包 ${loss.toFixed(1)}%</td></tr>`;
+  }).join('');
+
+  // ICE 统计汇总
+  let iceLoss = null;
+  if (pairStats.length > 0) {
+    const totalSent = pairStats.reduce((a, s) => a + (s.requestsSent || 0), 0);
+    const totalResp = pairStats.reduce((a, s) => a + (s.responsesReceived || 0), 0);
+    if (totalSent > 0) iceLoss = (1 - totalResp / totalSent) * 100;
+  }
+
+  // 判断与建议
+  let status = 'pass';
+  let rec = '';
+  if (lossRate > 0.3) {
+    status = 'fail';
+    rec = `<div class="recommendation fail">
+      <strong>⛔ 丢包率 ${(lossRate*100).toFixed(1)}% — 极端严重</strong><br>
+      这个丢包率下，DTLS ServerCertificate（2-4KB，需 IP 分片为 2-3 个 UDP 包）几乎必然丢包。
+      这就是 "ICE 通但 DTLS 卡住" 的直接根因。ICE 的 STUN 包小（~20B）容易通过，但 DTLS 大包会丢。
+    </div>`;
+  } else if (lossRate > 0.1) {
+    status = 'fail';
+    rec = `<div class="recommendation fail">
+      <strong>⛔ 丢包率 ${(lossRate*100).toFixed(1)}% — 严重</strong><br>
+      DTLS 握手需要多次往返且消息大，10%+ 丢包率会让握手在重传耗尽前难以完成。
+      建议：检查 VPN 隧道、WiFi 信号、链路拥塞。同时建议启用 TURN/TCP 兜底路径。
+    </div>`;
+  } else if (lossRate > 0.02) {
+    status = 'warn';
+    rec = `<div class="recommendation warn">
+      <strong>⚠️ 丢包率 ${(lossRate*100).toFixed(1)}% — 偏高</strong><br>
+      弱网下 DTLS 握手会变慢（重传导致），但可能仍能完成。建议监控是否伴随握手超时。
+    </div>`;
+  }
+
+  updateTestUI('packet-loss', status, `
+    <table>
+      <tr><td>总探测次数</td><td>${totalTrials}（${servers.length} 服务器 × ${ATTEMPTS} 次）</td></tr>
+      <tr><td>成功次数</td><td class="${lossRate > 0.1 ? 'val-fail' : 'val-pass'}">${okTrials}/${totalTrials}</td></tr>
+      <tr><td>综合丢包率</td><td class="${lossRate > 0.1 ? 'val-fail' : lossRate > 0.02 ? 'val-warn' : 'val-pass'}">${(lossRate*100).toFixed(1)}%</td></tr>
+      ${iceLoss !== null ? `<tr><td>ICE 统计丢包</td><td>${iceLoss.toFixed(1)}% (requestsSent=${pairStats.reduce((a,s)=>a+(s.requestsSent||0),0)})</td></tr>` : ''}
+    </table>
+    <div style="margin-top:8px;font-weight:600;">各服务器明细：</div>
+    <table>${serverDetail}</table>
+    ${rec || '<div class="recommendation"><strong>✅ 丢包率低</strong><br>UDP 路径健康。DTLS 失败根因更可能在 MTU、扩展拦截或信令路径上。</div>'}
+  `);
+  addTimeline(`📉 丢包率测量完成: ${(lossRate*100).toFixed(1)}% (${okTrials}/${totalTrials})`);
+  return lossRate <= 0.1;
+}
+
+// 4. 本地 DTLS 握手（Loopback）——核心测试
+async function testDTLSLocal() {
+  updateTestUI('dtls-local', 'running');
+  addTimeline('🔐 开始本地 DTLS Loopback 测试...');
+
+  return new Promise(resolve => {
+    const startTime = performance.now();
+    const events = [];
+
+    try {
+      loopbackPC1 = new RTCPeerConnection({ iceServers: [] });
+      loopbackPC2 = new RTCPeerConnection({ iceServers: [] });
+      // 挂载 RTCError 监听——DTLS 失败时捕获告警码，这是回答 "为什么失败" 的关键
+      addRTCErrorListener(loopbackPC1, 'Loopback-PC1');
+      addRTCErrorListener(loopbackPC2, 'Loopback-PC2');
+    } catch (e) {
+      updateTestUI('dtls-local', 'fail',
+        `<table><tr><td colspan="2" class="val-fail">❌ 无法创建 PeerConnection: ${e.message}</td></tr></table>`);
+      addTimeline('❌ DTLS Loopback: 无法创建 PeerConnection');
+      resolve(false);
+      return;
+    }
+
+    const logEvent = (side, msg) => {
+      events.push({ time: (performance.now() - startTime).toFixed(0), side, msg });
+      addTimeline(`🔐 ${side}: ${msg}`);
+    };
+
+    // DataChannel 用于验证 DTLS 是否成功
+    const dc1 = loopbackPC1.createDataChannel('dtls-test');
+    dc1.onopen = () => logEvent('PC1', 'DataChannel 已打开 → DTLS 握手成功 ✅');
+    dc1.onerror = (e) => logEvent('PC1', `DataChannel 错误: ${e.error?.message || 'unknown'}`);
+
+    loopbackPC2.ondatachannel = (e) => {
+      logEvent('PC2', '收到 DataChannel');
+      e.channel.onopen = () => logEvent('PC2', 'DataChannel 已打开');
+    };
+
+    // 连接状态追踪
+    loopbackPC1.onconnectionstatechange = () => {
+      logEvent('PC1', `连接状态: ${loopbackPC1.connectionState}`);
+      if (loopbackPC1.connectionState === 'connected') {
+        const elapsed = (performance.now() - startTime).toFixed(0);
+        logEvent('PC1', `DTLS Loopback 完成！耗时 ${elapsed}ms`);
+      }
+    };
+    loopbackPC2.onconnectionstatechange = () => {
+      logEvent('PC2', `连接状态: ${loopbackPC2.connectionState}`);
+    };
+
+    // ICE 状态
+    loopbackPC1.oniceconnectionstatechange = () => {
+      logEvent('PC1', `ICE 状态: ${loopbackPC1.iceConnectionState}`);
+    };
+    loopbackPC2.oniceconnectionstatechange = () => {
+      logEvent('PC2', `ICE 状态: ${loopbackPC2.iceConnectionState}`);
+    };
+
+    // 超时处理（DTLS 握手通常 <1s，给 8s 足够）
+    const timeout = setTimeout(async () => {
+      const elapsed = (performance.now() - startTime).toFixed(0);
+
+      // 获取统计信息
+      let dtlsDetail = '';
+      try {
+        const stats1 = await loopbackPC1.getStats();
+        stats1.forEach(r => {
+          if (r.type === 'transport') {
+            dtlsDetail += `<tr><td>PC1 DTLS</td><td>state=${r.dtlsState}, tls=${r.tlsVersion || 'N/A'}</td></tr>`;
+          }
+        });
+        const stats2 = await loopbackPC2.getStats();
+        stats2.forEach(r => {
+          if (r.type === 'transport') {
+            dtlsDetail += `<tr><td>PC2 DTLS</td><td>state=${r.dtlsState}, tls=${r.tlsVersion || 'N/A'}</td></tr>`;
+          }
+        });
+      } catch(e) {}
+
+      loopbackPC1.close();
+      loopbackPC2.close();
+
+      const eventLog = events.map(e =>
+        `<tr><td>${e.time}ms</td><td>${e.side}</td><td>${e.msg}</td></tr>`
+      ).join('');
+
+      updateTestUI('dtls-local', 'fail', `
+        <table>
+          <tr><td>结果</td><td class="val-fail">❌ DTLS 握手超时（${elapsed}ms）</td></tr>
+          ${dtlsDetail}
+        </table>
+        <div style="margin-top:8px;font-weight:600;">事件日志：</div>
+        <table>${eventLog}</table>
+        <div class="recommendation fail">
+          <strong>⛔ 严重：本地 DTLS 握手失败</strong><br>
+          这说明问题不在网络层，而在浏览器本身：
+          <ul style="margin:6px 0 0 16px;">
+            <li>浏览器策略可能禁用了 DTLS（检查 Island Browser 策略）</li>
+            <li>浏览器扩展干扰了 WebRTC API</li>
+            <li>DTLS 实现存在 bug（尝试升级浏览器）</li>
+          </ul>
+        </div>
+      `);
+      addTimeline('❌ DTLS Loopback 超时失败');
+      resolve(false);
+    }, 8000);
+
+    // 成功处理
+    let resolved = false;
+    loopbackPC1.onconnectionstatechange = () => {
+      if (loopbackPC1.connectionState === 'connected' && !resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        setTimeout(async () => {
+          const elapsed = (performance.now() - startTime).toFixed(0);
+          let dtlsDetail = '';
+          try {
+            const stats1 = await loopbackPC1.getStats();
+            stats1.forEach(r => {
+              if (r.type === 'transport') {
+                dtlsDetail += `<tr><td>DTLS 状态</td><td class="val-pass">${r.dtlsState}</td></tr>`;
+                dtlsDetail += `<tr><td>TLS 版本</td><td>${r.tlsVersion || 'N/A'}</td></tr>`;
+                dtlsDetail += `<tr><td>加密套件</td><td style="font-size:0.75em;">${r.dtlsCipher || 'N/A'}</td></tr>`;
+                dtlsDetail += `<tr><td>SRTP 套件</td><td>${r.srtpCipher || 'N/A'}</td></tr>`;
+              }
+            });
+          } catch(e) {}
+
+          loopbackPC1.close();
+          loopbackPC2.close();
+
+          const eventLog = events.map(e =>
+            `<tr><td>${e.time}ms</td><td>${e.side}</td><td>${e.msg}</td></tr>`
+          ).join('');
+
+          updateTestUI('dtls-local', 'pass', `
+            <table>
+              <tr><td>总耗时</td><td class="val-pass">${elapsed}ms</td></tr>
+              ${dtlsDetail}
+            </table>
+            <div style="margin-top:8px;font-weight:600;">事件日志：</div>
+            <table>${eventLog}</table>
+            <div class="recommendation">
+              <strong>✅ 本地 DTLS 握手成功</strong><br>
+              如果远程 DTLS 仍然失败，问题在网络路径上（VPN/防火墙/MTU/NAT），而非浏览器本身。
+            </div>
+          `);
+          addTimeline(`✅ DTLS Loopback 成功！耗时 ${elapsed}ms`);
+          resolve(true);
+        }, 300);
+      }
+    };
+
+    // 开始连接
+    loopbackPC1.createOffer().then(offer => {
+      logEvent('PC1', 'Offer 已创建');
+      return loopbackPC1.setLocalDescription(offer);
+    }).then(() => {
+      logEvent('PC1', 'LocalDescription 已设置');
+      return loopbackPC2.setRemoteDescription(loopbackPC1.localDescription);
+    }).then(() => {
+      logEvent('PC2', 'RemoteDescription 已设置');
+      return loopbackPC2.createAnswer();
+    }).then(answer => {
+      logEvent('PC2', 'Answer 已创建');
+      return loopbackPC2.setLocalDescription(answer);
+    }).then(() => {
+      logEvent('PC2', 'LocalDescription 已设置');
+      // 交换 ICE 候选
+      return new Promise(resolveICE => {
+        let pc1Done = false, pc2Done = false;
+        loopbackPC1.onicecandidate = (e) => {
+          if (e.candidate) loopbackPC2.addIceCandidate(e.candidate);
+          else pc1Done = true;
+          if (pc1Done && pc2Done) resolveICE();
+        };
+        loopbackPC2.onicecandidate = (e) => {
+          if (e.candidate) loopbackPC1.addIceCandidate(e.candidate);
+          else pc2Done = true;
+          if (pc1Done && pc2Done) resolveICE();
+        };
+        // 备用超时
+        setTimeout(resolveICE, 3000);
+      });
+    }).then(() => {
+      logEvent('PC1', 'ICE 候选交换完成');
+      return loopbackPC1.setRemoteDescription(loopbackPC2.localDescription);
+    }).then(() => {
+      logEvent('PC1', 'RemoteDescription 已设置');
+      logEvent('PC1', 'DTLS 握手开始...');
+    }).catch(err => {
+      logEvent('ERR', `连接建立失败: ${err.message}`);
+      clearTimeout(timeout);
+      updateTestUI('dtls-local', 'fail',
+        `<table><tr><td colspan="2" class="val-fail">❌ 连接建立失败: ${err.message}</td></tr></table>`);
+      resolve(false);
+    });
+  });
+}
+
+// 5. MTU 探测
+// 5. 路径 MTU 探测（双轨）
+// 重要说明：浏览器 JS 无法直接构造原始 UDP 包，因此无法像 ping -M do 那样精确测 IP 分片 MTU。
+// 本测试分两轨：
+//   A) DataChannel（SCTP 路径）——SCTP 有自己的分片+重传兜底，几乎总能成功，仅作参考
+//   B) TURN 分配（真实生产路径）——如果配置了 TURN，验证真实公网路径可达
+async function testMTUProbe() {
+  updateTestUI('mtu-probe', 'running');
+  addTimeline('📏 开始 MTU 探测（DataChannel/SCTP 路径 + TURN 路径）...');
+
+  const sctpResults = await runSCTPMTUTest();
+  const turnResult = await runTURNTest();
+
+  const maxOk = sctpResults.maxOk;
+  const detailRows = Object.entries(sctpResults.results).map(([size, r]) =>
+    `<tr><td>${size}B</td><td class="${r.ok ? 'val-pass' : 'val-warn'}">${r.ok ? `✅ ${r.time}ms` : `⚠️ ${r.reason}`}</td></tr>`
+  ).join('');
+
+  const turnRows = turnResult ?
+    `<tr><td>TURN 分配</td><td class="${turnResult.ok ? 'val-pass' : 'val-fail'}">${turnResult.ok ? `✅ ${turnResult.time}ms` : `❌ ${turnResult.reason}`}</td></tr>` : '';
+
+  let recommendation = `
+    <div class="recommendation warn">
+      <strong>📏 关于 MTU 测量的重要说明</strong><br>
+      DataChannel 走 SCTP 路径——SCTP 自带分片与重传，因此大数据包 <b>几乎总能送达</b>，<b>不能反映</b> DTLS 握手期大消息（ServerCertificate 2-4KB）在 UDP/IP 分片层的真实情况。
+      <br>要精确测 IP 分片 MTU 黑洞，必须在<b>服务器侧</b>执行：
+      <pre style="margin-top:6px;"># 服务器侧（能 ping 到客户端出口 IP 时）
+ping -M do -s 1400 &lt;客户端出口IP&gt;   # 递增 -s 找到最大不丢的包
+tcpdump -i any 'udp and (ip[6:2] & 0x2000 != 0)'   # 抓带 DF 标记的分片包</pre>
+    </div>`;
+
+  if (turnResult && !turnResult.ok) {
+    recommendation += `
+      <div class="recommendation fail">
+        <strong>⛔ TURN 路径不可达（${turnResult.reason}）</strong><br>
+        TURN 是 DTLS 失败时的关键逃生路径。如果生产环境依赖 TURN，此失败会导致直连失败后完全断连。
+      </div>`;
+  }
+
+  updateTestUI('mtu-probe', 'warn', `
+    <table>
+      <tr><td>SCTP 最大通过</td><td>${maxOk}B（参考值，SCTP 有重传兜底）</td></tr>
+      ${turnRows}
+    </table>
+    <div style="margin-top:8px;font-weight:600;">SCTP 路径明细：</div>
+    <table>${detailRows}</table>
+    ${recommendation}
+  `);
+  addTimeline(`📏 MTU 探测完成: SCTP 最大=${maxOk}B, TURN=${turnResult ? (turnResult.ok ? 'OK' : 'FAIL') : '未配置'}`);
+  return turnResult ? turnResult.ok : true;
+}
+
+// SCTP 路径 MTU（仅供参考）
+function runSCTPMTUTest() {
+  return new Promise(resolve => {
+    const pc1 = new RTCPeerConnection({ iceServers: [] });
+    const pc2 = new RTCPeerConnection({ iceServers: [] });
+    const sizes = [500, 1000, 1500, 2000, 4000, 8000, 16000, 32000, 64000];
+    const results = {};
+    let testIndex = 0;
+
+    const finish = () => {
+      pc1.close(); pc2.close();
+      const maxOk = Math.max(...Object.entries(results).filter(([,r]) => r.ok).map(([s]) => parseInt(s)), 0);
+      resolve({ maxOk, results });
+    };
+
+    const timeout = setTimeout(finish, 12000);
+
+    const dc = pc1.createDataChannel('mtu-test', { ordered: true });
+    dc.onopen = () => {
+      addTimeline('📏 SCTP DataChannel 已打开，发送不同大小消息...');
+      runNextTest();
+    };
+
+    function runNextTest() {
+      if (testIndex >= sizes.length) {
+        clearTimeout(timeout);
+        finish();
+        return;
+      }
+      const size = sizes[testIndex];
+      const payload = new Uint8Array(size);
+      for (let i = 0; i < size; i++) payload[i] = i % 256;
+      const start = performance.now();
+
+      const msgTimeout = setTimeout(() => {
+        results[size] = { ok: false, time: -1, reason: '超时(SCTP 罕见)' };
+        testIndex++;
+        runNextTest();
+      }, 800);
+
+      try {
+        dc.send(payload);
+        results[size] = { ok: true, time: (performance.now() - start).toFixed(0), reason: '' };
+        clearTimeout(msgTimeout);
+      } catch (e) {
+        clearTimeout(msgTimeout);
+        results[size] = { ok: false, time: -1, reason: e.message };
+      }
+      testIndex++;
+      setTimeout(runNextTest, 150);
+    }
+
+    pc2.ondatachannel = (e) => { e.channel.onmessage = () => {}; };
+
+    pc1.createOffer().then(o => pc1.setLocalDescription(o)).then(() =>
+      pc2.setRemoteDescription(pc1.localDescription)
+    ).then(() => pc2.createAnswer()).then(a => pc2.setLocalDescription(a)).then(() => {
+      pc1.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); };
+      pc2.onicecandidate = (e) => { if (e.candidate) pc1.addIceCandidate(e.candidate); };
+      setTimeout(() => pc1.setRemoteDescription(pc2.localDescription), 1200);
+    }).catch(() => { clearTimeout(timeout); finish(); });
+  });
+}
+
+// TURN 路径测试（真实公网路径）——仅当配置了 TURN 时运行
+function runTURNTest() {
+  const turnUrl = CONFIG.turnServer;
+  if (!turnUrl || !CONFIG.useTurn) {
+    return Promise.resolve(null);
+  }
+  addTimeline(`📡 使用 TURN 测试真实路径: ${turnUrl}`);
+
+  return new Promise(resolve => {
+    const start = performance.now();
+    let pc;
+    try {
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: turnUrl.startsWith('turn:') || turnUrl.startsWith('turns:') ? turnUrl : `turn:${turnUrl}` }],
+        iceTransportPolicy: 'relay',  // 强制走 TURN，确保测的是真实中继路径
+      });
+    } catch (e) {
+      resolve({ ok: false, time: -1, reason: `创建 PeerConnection 失败: ${e.message}` });
+      return;
+    }
+
+    const t = setTimeout(() => {
+      try { pc.close(); } catch(e) {}
+      resolve({ ok: false, time: -1, reason: 'TURN 分配超时(8s) — 中继路径不通' });
+    }, 8000);
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate && e.candidate.candidate.includes('relay')) {
+        clearTimeout(t);
+        const elapsed = (performance.now() - start).toFixed(0);
+        try { pc.close(); } catch(e) {}
+        resolve({ ok: true, time: elapsed, reason: '' });
+      }
+    };
+
+    pc.onicecandidateerror = (e) => {
+      clearTimeout(t);
+      try { pc.close(); } catch(err) {}
+      resolve({ ok: false, time: -1, reason: `ICE 错误: ${e.errorCode} ${e.errorText || ''}` });
+    };
+
+    pc.createDataChannel('turn-test');
+    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(e => {
+      clearTimeout(t);
+      try { pc.close(); } catch(err) {}
+      resolve({ ok: false, time: -1, reason: `createOffer 失败: ${e.message}` });
+    });
+  });
+}
+
+// 6. TLS/DTLS 版本支持
+async function testTLSVersion() {
+  updateTestUI('tls-version', 'running');
+  // 通过 getStats 检查支持的 DTLS 版本
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  const pc2 = new RTCPeerConnection({ iceServers: [] });
+
+  return new Promise(resolve => {
+    const timeout = setTimeout(async () => {
+      let detail = '';
+      try {
+        const stats = await pc.getStats();
+        stats.forEach(r => {
+          if (r.type === 'transport') {
+            detail += `<tr><td>DTLS 状态</td><td>${r.dtlsState || 'N/A'}</td></tr>`;
+            detail += `<tr><td>TLS 版本</td><td>${r.tlsVersion || 'N/A'} <span style="color:var(--muted);">(FEFD=DTLS1.0, FEFC=DTLS1.2, 0303=TLS1.2)</span></td></tr>`;
+            detail += `<tr><td>加密套件</td><td style="font-size:0.75em;">${r.dtlsCipher || 'N/A'}</td></tr>`;
+          }
+        });
+      } catch(e) {}
+      pc.close(); pc2.close();
+
+      addTimeline(`🔒 TLS/DTLS 版本检测: ${detail.includes('tlsVersion') ? '完成' : '无法获取'}`);
+      updateTestUI('tls-version', 'warn',
+        `<table>${detail || '<tr><td colspan="2" class="val-warn">⚠️ 无法获取 DTLS 版本信息（可能握手未完成）</td></tr>'}</table>`);
+      resolve(true);
+    }, 4000);
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        clearTimeout(timeout);
+        timeout.dispatchEvent?.(new Event('timeout'));
+      }
+    };
+
+    pc.createDataChannel('tls-check');
+    pc.createOffer().then(o => pc.setLocalDescription(o)).then(() =>
+      pc2.setRemoteDescription(pc.localDescription)
+    ).then(() => pc2.createAnswer()).then(a => pc2.setLocalDescription(a)).then(() => {
+      pc.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); };
+      pc2.onicecandidate = (e) => { if (e.candidate) pc.addIceCandidate(e.candidate); };
+      setTimeout(() => pc.setRemoteDescription(pc2.localDescription), 1500);
+    });
+  });
+}
+
+// 7. 浏览器策略检测（增强版 — 含 Island Browser 专项）
+async function testPolicyCheck() {
+  updateTestUI('policy-check', 'running');
+  const checks = {};
+
+  // 检测 WebRTC 是否被完全禁用
+  try {
+    const pc = new RTCPeerConnection();
+    checks['WebRTC可用'] = { val: '✅ 是', cls: 'val-pass' };
+    pc.close();
+  } catch (e) {
+    checks['WebRTC可用'] = { val: `❌ 否 (${e.message.substring(0,60)})`, cls: 'val-fail' };
+  }
+
+  // 检测能否枚举设备（getUserMedia 权限——不实际请求摄像头）
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasVideo = devices.some(d => d.kind === 'videoinput');
+      const hasAudio = devices.some(d => d.kind === 'audioinput');
+      checks['设备枚举'] = { val: `✅ ${devices.length} 个设备 (video=${hasVideo?'Y':'N'} audio=${hasAudio?'Y':'N'})`, cls: 'val-pass' };
+    } else {
+      checks['设备枚举'] = { val: '❌ API 不可用', cls: 'val-fail' };
+    }
+  } catch (e) {
+    checks['设备枚举'] = { val: `⚠️ ${e.message.substring(0,60)}`, cls: 'val-warn' };
+  }
+
+  // 检测 DataChannel 支持
+  try {
+    const pc = new RTCPeerConnection();
+    const dc = pc.createDataChannel('test');
+    checks['DataChannel'] = { val: dc ? '✅ 支持' : '❌ 不支持', cls: dc ? 'val-pass' : 'val-fail' };
+    pc.close();
+  } catch (e) {
+    checks['DataChannel'] = { val: `❌ ${e.message.substring(0,60)}`, cls: 'val-fail' };
+  }
+
+  // 检测 localStorage（某些策略会禁用）
+  try {
+    localStorage.setItem('__dtls_test__', '1');
+    localStorage.removeItem('__dtls_test__');
+    checks['本地存储'] = { val: '✅ 正常', cls: 'val-pass' };
+  } catch (e) {
+    checks['本地存储'] = { val: '❌ 被禁用', cls: 'val-fail' };
+  }
+
+  // 检测 Service Worker
+  checks['ServiceWorker'] = { val: 'serviceWorker' in navigator ? '✅ 支持' : '⚠️ 不支持', cls: 'serviceWorker' in navigator ? 'val-pass' : 'val-warn' };
+
+  // 检测是否在 iframe 中
+  checks['iframe环境'] = { val: window !== window.top ? '⚠️ 是（可能有跨域限制）' : '✅ 否（顶层窗口）', cls: window !== window.top ? 'val-warn' : 'val-pass' };
+
+  // 检测是否为企业浏览器（Island / Chrome Enterprise）
+  const ua = navigator.userAgent;
+  const isIsland = ua.includes('Island') || ua.includes('IslandBrowser');
+  const brandCheck = {
+    island: isIsland,
+    edge: ua.includes('Edg/'),
+    chrome: ua.includes('Chrome') && !ua.includes('Edg/') && !isIsland,
+  };
+  checks['浏览器类型'] = {
+    val: isIsland ? '🔔 Island Browser（企业版）' : brandCheck.edge ? 'Edge' : brandCheck.chrome ? 'Chrome' : navigator.userAgentData?.brands?.[0]?.brand || '未知',
+    cls: isIsland ? 'val-warn' : 'val-pass'
+  };
+
+  // 检测 chrome.management API 是否可用（扩展检测的前提）
+  checks['扩展API'] = {
+    val: (typeof chrome !== 'undefined' && chrome.management) ? '✅ 可用（可检测扩展）' : '⚠️ 不可用（非扩展环境或权限不足）',
+    cls: (typeof chrome !== 'undefined' && chrome.management) ? 'val-pass' : 'val-warn'
+  };
+
+  const anyFail = Object.values(checks).some(c => c.cls === 'val-fail');
+  const detail = Object.entries(checks).map(([k, v]) =>
+    `<tr><td>${k}</td><td class="${v.cls}">${v.val}</td></tr>`
+  ).join('');
+
+  updateTestUI('policy-check', anyFail ? 'warn' : 'pass', `
+    <table>${detail}</table>
+    ${isIsland ? `
+    <div class="recommendation warn">
+      <strong>🔔 检测到 Island Browser — 重点关注以下企业策略：</strong>
+      <ul style="margin:6px 0 0 16px;">
+        <li><code>ExtensionInstallForcelist</code> — 强制扩展可能拦截 DTLS 流量（TLS 中间人/DLP）</li>
+        <li><code>URLBlocklist</code> — 可能封锁 chrome://webrtc-internals（见企业策略专项测试）</li>
+        <li><code>AudioCaptureAllowedUrls / VideoCaptureAllowedUrls</code> — 媒体白名单限制（见媒体权限测试）</li>
+      </ul>
+    </div>` : ''}
+    <div class="recommendation">
+      <strong>📋 Chrome/Island 策略完整排查清单：</strong>
+      <ul style="margin:6px 0 0 16px;">
+        <li><code>WebRtcUdpPortRange</code> — 限制 UDP 端口范围</li>
+        <li><code>SSLVersionMin / SSLVersionMax</code> — 可能禁用 DTLS 版本</li>
+        <li><code>ExtensionInstallForcelist</code> — 强制扩展（DLP/安全/网络拦截）</li>
+        <li>Proxy 策略 — 可能强制 WebRTC 走 TCP</li>
+        <li>证书/CA 策略 — 可能干预 DTLS 证书链验证</li>
+      </ul>
+    </div>
+  `);
+  addTimeline(`🔍 浏览器策略检测完成 (Island=${isIsland})`);
+  return !anyFail;
+}
+
+// 7b. 🔌 企业扩展审查
+async function testExtensionAudit() {
+  updateTestUI('extension-audit', 'running');
+  addTimeline('🔌 开始检测企业强制扩展...');
+
+  // Island Browser 策略中已知的强制扩展 ID 及其用途
+  const KNOWN_EXTENSIONS = {
+    'eecadmlnhempdpkmbjmnnocghkbkmelm': { name: '⚠️ 未知扩展 #1', risk: 'high', note: 'Island Expert 策略中的强制扩展，功能未知' },
+    'gniobnbbehpgbcamkdplghfimhocklgb': { name: '⚠️ 未知扩展 #2', risk: 'high', note: 'Island Expert 策略中的强制扩展，功能未知' },
+    'gmbmikajjgmnabiglmofipeabaddhgne': { name: '⚠️ 未知扩展 #3', risk: 'high', note: 'Island Expert 策略中的强制扩展，功能未知' },
+    'ghbmnnjooekpmoecnnnilnnbdlolhkhi': { name: 'Google Docs Offline', risk: 'low', note: 'Google 官方离线文档扩展（低风险）' },
+    'pbgclfkmlfkllfbpdjpkndahdbjcgbmk': { name: '🔴 Island Engine', risk: 'critical', note: 'Island 安全引擎 — DLP/网络过滤/威胁检测。可能对 DTLS 流量做 TLS 中间人检查' },
+    'mdfhopdeebgomoojheclcglbphdpfeoo': { name: '⚠️ 未知扩展 #5', risk: 'medium', note: 'Island Expert 白名单中的扩展' },
+    'idgadaccgipmpannjkmfddolnnhmeklj': { name: '⚠️ 未知扩展 #6', risk: 'medium', note: 'Island Expert 白名单中的扩展' },
+    'chngjgginikejcpaejphfoglpppmjfne': { name: '⚠️ 未知扩展 #7', risk: 'medium', note: 'Island Expert 白名单中的扩展' },
+  };
+
+  let findings = [];
+  let criticalCount = 0;
+
+  // 方法1: 通过 chrome.management API 检测（在扩展环境中可用）
+  if (typeof chrome !== 'undefined' && chrome.management && chrome.management.getAll) {
+    try {
+      const extensions = await new Promise((resolve, reject) => {
+        chrome.management.getAll(exts => {
+          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+          else resolve(exts);
+        });
+      });
+
+      for (const ext of extensions) {
+        const known = KNOWN_EXTENSIONS[ext.id];
+        const entry = {
+          id: ext.id,
+          name: ext.name,
+          enabled: ext.enabled,
+          mayDisable: ext.mayDisable,
+          installType: ext.installType,  // 'admin' = 强制安装
+          known: !!known,
+          risk: known?.risk || 'unknown',
+          note: known?.note || (ext.installType === 'admin' ? '管理员强制安装，用途不明' : ''),
+        };
+
+        if (ext.installType === 'admin' || known?.risk === 'critical' || known?.risk === 'high') {
+          findings.push(entry);
+          if (known?.risk === 'critical' || known?.risk === 'high') criticalCount++;
+        }
+      }
+    } catch (e) {
+      findings.push({ id: 'ERROR', name: `chrome.management.getAll 失败: ${e.message}`, enabled: false, risk: 'unknown', note: '可能不在扩展环境中运行' });
+    }
+  }
+
+  // 方法2: 通过 URL 探测检查已知扩展的资源是否存在
+  if (findings.length === 0) {
+    addTimeline('🔌 chrome.management API 不可用，使用 URL 探测...');
+    for (const [id, info] of Object.entries(KNOWN_EXTENSIONS)) {
+      if (info.risk === 'low') continue; // 跳过低风险扩展
+      try {
+        const probed = await probeExtension(id);
+        if (probed) {
+          findings.push({
+            id,
+            name: info.name,
+            enabled: true,
+            installType: 'admin (推测)',
+            risk: info.risk,
+            note: info.note + ' (通过资源探测确认已安装)',
+          });
+          if (info.risk === 'critical' || info.risk === 'high') criticalCount++;
+        }
+      } catch(e) {}
+    }
+
+    if (findings.length === 0) {
+      findings.push({ id: 'N/A', name: '未检测到已知强制扩展', risk: 'low', note: 'URL 探测未命中已知 Island 扩展。如果确实安装了扩展，它们可能隐藏了 web_accessible_resources。' });
+    }
+  }
+
+  const status = criticalCount > 0 ? 'fail' : findings.length > 0 ? 'warn' : 'pass';
+  const detail = findings.map(f => {
+    const riskIcon = f.risk === 'critical' ? '🔴' : f.risk === 'high' ? '🟠' : f.risk === 'medium' ? '🟡' : '🟢';
+    return `<tr>
+      <td>${riskIcon} ${f.name}</td>
+      <td class="${f.risk === 'critical' || f.risk === 'high' ? 'val-fail' : f.risk === 'medium' ? 'val-warn' : 'val-pass'}">${f.note || '已安装'}</td>
+    </tr>`;
+  }).join('');
+
+  updateTestUI('extension-audit', status, `
+    <table>${detail}</table>
+    ${criticalCount > 0 ? `
+    <div class="recommendation fail">
+      <strong>⛔ 检测到 ${criticalCount} 个高风险企业扩展</strong><br>
+      这些扩展可能对 DTLS 流量进行 TLS 中间人检查，导致 DTLS 握手失败：
+      <ul style="margin:6px 0 0 16px;">
+        <li><strong>Island Engine</strong> — DLP/安全引擎，可能拦截并检查所有加密流量</li>
+        <li><strong>未知强制扩展</strong> — 功能不明，但被 Island Expert 策略强制安装</li>
+        <li>建议：让 IT 管理员创建不含这些扩展的测试策略组，验证 DTLS 是否恢复正常</li>
+      </ul>
+    </div>` : findings.length > 0 ? `
+    <div class="recommendation warn">
+      <strong>⚠️ 检测到企业扩展</strong><br>
+      虽然不是确定性的根因，但企业扩展是 DTLS 故障的常见来源（尤其是 TLS 中间人检查）。
+    </div>` : `
+    <div class="recommendation">
+      <strong>✅ 未检测到高风险扩展</strong><br>
+      DTLS 故障的根因更可能在网络层（VPN/MTU/防火墙）而非浏览器扩展。
+    </div>`}
+  `);
+  addTimeline(`🔌 扩展审查完成: ${findings.length} 个发现, ${criticalCount} 个高风险`);
+  return criticalCount === 0;
+}
+
+// 扩展探测辅助函数
+function probeExtension(extId) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const timeout = setTimeout(() => { img.src = ''; resolve(false); }, 1500);
+    img.onload = () => { clearTimeout(timeout); resolve(true); };
+    img.onerror = () => { clearTimeout(timeout); resolve(false); };
+    // 尝试加载扩展的 manifest.json 中定义的 web_accessible_resource
+    // 多数企业扩展不暴露 web_accessible_resources，所以此方法有限
+    img.src = `chrome-extension://${extId}/icon.png`;
+  });
+}
+
+// 7c. 🎥 媒体权限 & 域名白名单检测
+async function testMediaPermission() {
+  updateTestUI('media-permission', 'running');
+  addTimeline('🎥 检测媒体权限状态...');
+
+  const checks = {};
+
+  // 检测当前域名
+  const currentDomain = window.location.hostname;
+  checks['当前域名'] = { val: currentDomain || 'N/A', cls: 'val-pass' };
+
+  // 测试 getUserMedia 权限（不实际打开摄像头——用 {video:false, audio:false} 会直接失败，
+  // 所以分别测试 video 和 audio 权限状态）
+  // 我们通过 enumerateDevices 的 label 是否为空来推断权限
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const hasLabels = devices.some(d => d.label && d.label.length > 0);
+    checks['设备标签可见'] = {
+      val: hasLabels ? '✅ 是（已有媒体权限）' : '⚠️ 否（未授权或策略限制）',
+      cls: hasLabels ? 'val-pass' : 'val-warn'
+    };
+  } catch (e) {
+    checks['设备标签可见'] = { val: `❌ ${e.message.substring(0,60)}`, cls: 'val-fail' };
+  }
+
+  // 测试 getUserMedia 是否能被调用（用 {video:true} 会弹出权限对话框，不适合自动测试）
+  // 改用 Permissions API 查询摄像头状态
+  try {
+    if (navigator.permissions && navigator.permissions.query) {
+      const camStatus = await navigator.permissions.query({ name: 'camera' });
+      const micStatus = await navigator.permissions.query({ name: 'microphone' });
+      checks['摄像头权限状态'] = { val: camStatus.state, cls: camStatus.state === 'denied' ? 'val-fail' : camStatus.state === 'prompt' ? 'val-warn' : 'val-pass' };
+      checks['麦克风权限状态'] = { val: micStatus.state, cls: micStatus.state === 'denied' ? 'val-fail' : micStatus.state === 'prompt' ? 'val-warn' : 'val-pass' };
+    } else {
+      checks['Permissions API'] = { val: '⚠️ 不可用', cls: 'val-warn' };
+    }
+  } catch (e) {
+    checks['权限查询'] = { val: `⚠️ ${e.message.substring(0,60)}`, cls: 'val-warn' };
+  }
+
+  // 检测是否为常见的企业应用域名
+  const enterpriseDomains = ['intuit.com', 'zoom.us', 'awsapps.com'];
+  const matchedEnterprise = enterpriseDomains.filter(d => currentDomain.includes(d));
+  checks['企业域名匹配'] = {
+    val: matchedEnterprise.length > 0 ? `✅ 匹配: ${matchedEnterprise.join(', ')}（可能在白名单中）` : `⚠️ 不匹配: ${currentDomain} 不在已知白名单中`,
+    cls: matchedEnterprise.length > 0 ? 'val-pass' : 'val-warn'
+  };
+
+  const anyFail = Object.values(checks).some(c => c.cls === 'val-fail');
+  const detail = Object.entries(checks).map(([k, v]) =>
+    `<tr><td>${k}</td><td class="${v.cls}">${v.val}</td></tr>`
+  ).join('');
+
+  updateTestUI('media-permission', anyFail ? 'fail' : matchedEnterprise.length === 0 ? 'warn' : 'pass', `
+    <table>${detail}</table>
+    ${matchedEnterprise.length === 0 ? `
+    <div class="recommendation warn">
+      <strong>⚠️ 当前域名不在已知的企业白名单中</strong><br>
+      Island Expert 策略中的 <code>AudioCaptureAllowedUrls</code> 和 <code>VideoCaptureAllowedUrls</code>
+      仅允许 <code>[*.]zoom.us</code>, <code>[*.]intuit.com</code>, <code>[*.]awsapps.com</code>。<br>
+      如果你的 RTC 应用部署在其他域名上，摄像头/麦克风将不可用（不影响 DTLS 本身，但影响媒体流）。
+    </div>` : ''}
+  `);
+  addTimeline(`🎥 媒体权限检测完成: 域名=${currentDomain}`);
+  return !anyFail;
+}
+
+// 7d. 🏢 企业策略专项（Island/Chrome Enterprise）
+async function testEnterprisePolicy() {
+  updateTestUI('enterprise-policy', 'running');
+  addTimeline('🏢 检测企业级策略限制...');
+  const checks = {};
+
+  // 1. 检测 chrome://webrtc-internals 是否被封锁
+  // 通过尝试在隐藏 iframe 中加载来检测
+  checks['webrtc-internals 可访问'] = { val: '⚠️ 无法检测（需 chrome:// 协议权限）', cls: 'val-warn' };
+  // 间接检测：如果用户能打开这个页面，说明 HTTP 页面本身没被封
+  checks['HTTP 诊断页面可访问'] = { val: '✅ 是（当前页面正常加载）', cls: 'val-pass' };
+
+  // 2. 检测 DevTools 是否被禁用
+  let devtoolsBlocked = false;
+  try {
+    // Island 策略中 IslandDefaultDeveloperToolsSetting = 0 → 禁用 DevTools
+    // 在普通 web 页面无法直接检测，但可以通过 console 行为间接判断
+    const consoleExists = typeof console !== 'undefined';
+    checks['DevTools 状态'] = { val: '⚠️ 无法直接检测（策略 IslandDefaultDeveloperToolsSetting=0 时禁用）', cls: 'val-warn' };
+  } catch(e) {}
+
+  // 3. 检测 URL 封锁策略（间接检测）
+  // 尝试 fetch 一个已知被封锁的 chrome:// URL（会静默失败）
+  try {
+    const testFetch = await fetch('chrome-extension://invalid-test-id/manifest.json').catch(() => 'blocked');
+    checks['chrome:// URL 访问'] = { val: '⚠️ 企业策略可能封锁了内部调试页面', cls: 'val-warn' };
+  } catch(e) {}
+
+  // 4. 检测网络预测是否被禁用（NetworkPredictionOptions=2 → 完全禁用）
+  checks['网络预测'] = { val: '⚠️ 企业策略可能禁用了网络预测（NetworkPredictionOptions=2）', cls: 'val-warn' };
+
+  // 5. 检测 DNS-over-HTTPS 模板（空字符串 = 禁用 DoH）
+  checks['DNS-over-HTTPS'] = { val: '⚠️ 企业策略可能禁用了 DoH（DnsOverHttpsTemplates=""）', cls: '' };
+
+  // 6. 检测 WebRTC 内部页面是否在 URLBlocklist 中（根据 Island Expert 策略）
+  // URLBlocklist 包含: chrome://webrtc-internals, chrome://webrtc-logs, chrome://net-internals 等
+  const blockedDebugPages = [
+    'chrome://webrtc-internals',
+    'chrome://webrtc-logs',
+    'chrome://net-internals',
+    'chrome://net-export',
+    'chrome://media-internals',
+  ];
+
+  // 7. 检测企业 User-Agent 覆盖
+  const ua = navigator.userAgent;
+  const uaOverrides = [];
+  if (ua.includes('Island')) uaOverrides.push('Island Engine UA');
+  if (ua.includes('Google Chrome') && ua.includes('Island')) uaOverrides.push('UA 可能被策略覆盖（IslandUserAgentBrandNameForDomains）');
+
+  checks['User-Agent'] = {
+    val: uaOverrides.length > 0 ? `⚠️ ${uaOverrides.join('; ')}` : '✅ 默认 UA',
+    cls: uaOverrides.length > 0 ? 'val-warn' : 'val-pass'
+  };
+
+  // 8. 汇总已知的 Island Expert 策略影响
+  const islandPolicyImpacts = [
+    { policy: 'URLBlocklist', effect: '封锁 chrome://webrtc-internals、chrome://webrtc-logs 等调试页面', dtlsImpact: '间接：客户无法自行调试' },
+    { policy: 'ExtensionInstallForcelist', effect: '强制安装 Island Engine + 3 个未知扩展', dtlsImpact: '🔴 直接：TLS 中间人可能破坏 DTLS 握手' },
+    { policy: 'IslandDefaultDeveloperToolsSetting=0', effect: '禁用开发者工具', dtlsImpact: '间接：无法使用 Console/Network 面板调试' },
+    { policy: 'AudioCaptureAllowedUrls', effect: '仅 intuit.com, zoom.us, awsapps.com 可用麦克风', dtlsImpact: '间接：非白名单域名无音频' },
+    { policy: 'VideoCaptureAllowedUrls', effect: '仅 intuit.com, zoom.us 可用摄像头', dtlsImpact: '间接：非白名单域名无视频' },
+    { policy: 'NetworkPredictionOptions=2', effect: '完全禁用网络预测', dtlsImpact: '低：不影响 DTLS' },
+    { policy: 'DnsOverHttpsTemplates=""', effect: '禁用 DNS-over-HTTPS', dtlsImpact: '低：不影响 DTLS' },
+    { policy: 'IslandUserAgentBrandNameForDomains', effect: '特定域名覆盖 UA 品牌', dtlsImpact: '低：但可能影响服务端 UA 检测逻辑' },
+  ];
+
+  // 构建 Island 策略影响表
+  const policyTable = islandPolicyImpacts.map(p =>
+    `<tr>
+      <td><code>${p.policy}</code></td>
+      <td style="font-size:0.78em;">${p.effect}</td>
+      <td class="${p.dtlsImpact.includes('直接') ? 'val-fail' : 'val-warn'}" style="font-size:0.75em;">${p.dtlsImpact}</td>
+    </tr>`
+  ).join('');
+
+  const detail = Object.entries(checks).map(([k, v]) =>
+    `<tr><td>${k}</td><td class="${v.cls}">${v.val}</td></tr>`
+  ).join('');
+
+  updateTestUI('enterprise-policy', 'warn', `
+    <table>${detail}</table>
+    <div style="margin-top:12px;font-weight:600;color:var(--warn);">📋 Island Expert 策略影响分析（基于上传的 Expert_policy.json）：</div>
+    <table style="margin-top:6px;">
+      <tr><th style="text-align:left;color:var(--muted);">策略</th><th style="text-align:left;color:var(--muted);">效果</th><th style="text-align:left;color:var(--muted);">DTLS 影响</th></tr>
+      ${policyTable}
+    </table>
+    <div class="recommendation fail">
+      <strong>⛔ 关键发现：Island Engine + 未知扩展 是 DTLS 故障的首要嫌疑</strong><br>
+      <ul style="margin:6px 0 0 16px;">
+        <li>Island Engine 作为 DLP/安全引擎，很可能对 DTLS 流量做 TLS 中间人检查</li>
+        <li>DTLS 证书是浏览器自签的（非公共 CA），中间人会导致证书验证失败 → 客户端静默拒绝</li>
+        <li>这就解释了为什么 ICE 通了但 DTLS 握手永远等不到客户端回复</li>
+        <li>验证方法：让 IT 创建不含 Island Engine 的测试策略，对比 DTLS 成功率</li>
+      </ul>
+    </div>
+  `);
+  addTimeline('🏢 企业策略专项分析完成');
+  return true; // 标记 warn 而非 fail，因为这些是分析结果不是测试失败
+}
+
+// 8. 网络类型识别
+async function testNetworkType() {
+  updateTestUI('network-type', 'running');
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  const candidates = { host: [], srflx: [], relay: [] };
+
+  return new Promise(resolve => {
+    const timeout = setTimeout(() => {
+      pc.close();
+      const hostIPs = candidates.host.map(c => c.address);
+      const srflxIPs = candidates.srflx.map(c => c.address);
+
+      // 网络类型推断
+      let networkType = '未知';
+      let recommendation = '';
+
+      const allPrivate = hostIPs.every(ip =>
+        ip.startsWith('10.') || ip.startsWith('172.') || ip.startsWith('192.168.')
+      );
+      const hasPublicHost = hostIPs.some(ip =>
+        !ip.startsWith('10.') && !ip.startsWith('172.') && !ip.startsWith('192.168.') && ip !== '127.0.0.1'
+      );
+
+      if (hasPublicHost) {
+        networkType = '🌐 公网 IP（无 NAT）→ 可能是 VPN 或直连网络';
+        recommendation = `<div class="recommendation warn"><strong>⚠️ 检测到公网 IP</strong><br>如果这是 VPN，VPN 的 MTU 可能小于标准值（1500），导致 DTLS ServerCertificate 被截断。</div>`;
+      } else if (candidates.srflx.length > 0) {
+        networkType = '🏠 典型家庭/办公网络（NAT 后，STUN 可达）';
+      } else if (candidates.host.length > 0 && candidates.srflx.length === 0) {
+        networkType = '🔒 受限网络（UDP 到公网被阻断，可能是企业防火墙）';
+        recommendation = `<div class="recommendation fail"><strong>⛔ UDP 到公网不通</strong><br>这通常意味着 DTLS 无法通过直连路径完成。需要 TURN/TCP 作为备用路径。</div>`;
+      }
+
+      const detail = `
+        <table>
+          <tr><td>推断网络类型</td><td>${networkType}</td></tr>
+          <tr><td>Host IP</td><td>${hostIPs.join(', ') || '无'}</td></tr>
+          <tr><td>STUN 映射 IP</td><td>${srflxIPs.join(', ') || '无'}</td></tr>
+          <tr><td>Host 候选数</td><td>${candidates.host.length}</td></tr>
+          <tr><td>Srflx 候选数</td><td>${candidates.srflx.length}</td></tr>
+        </table>
+        ${recommendation}
+      `;
+
+      const status = candidates.srflx.length > 0 ? 'pass' : 'warn';
+      updateTestUI('network-type', status, detail);
+      addTimeline(`🌍 网络类型: ${networkType}`);
+      resolve(true);
+    }, 4000);
+
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) return;
+      const parts = e.candidate.candidate.split(' ');
+      const type = parts[7];
+      const ip = parts[4];
+      const port = parts[5];
+      if (candidates[type]) {
+        candidates[type].push({ address: ip, port });
+      }
+    };
+
+    pc.createDataChannel('net-type');
+    pc.createOffer().then(o => pc.setLocalDescription(o));
+  });
+}
+
+// 9. DTLS 证书指纹验证
+async function testCertFingerprint() {
+  updateTestUI('cert-fingerprint', 'running');
+  const pc = new RTCPeerConnection({ iceServers: [] });
+
+  return new Promise(resolve => {
+    const timeout = setTimeout(async () => {
+      let detail = '';
+      try {
+        const stats = await pc.getStats();
+        stats.forEach(r => {
+          if (r.type === 'certificate') {
+            detail += `<tr><td>指纹算法</td><td>${r.fingerprintAlgorithm || 'N/A'}</td></tr>`;
+            detail += `<tr><td>指纹值</td><td style="font-size:0.7em;word-break:break-all;">${r.fingerprint || 'N/A'}</td></tr>`;
+            detail += `<tr><td>证书</td><td style="font-size:0.7em;word-break:break-all;">${(r.base64Certificate || 'N/A').substring(0, 80)}...</td></tr>`;
+          }
+        });
+      } catch(e) {}
+
+      if (!detail) {
+        detail = '<tr><td colspan="2" class="val-warn">⚠️ 需 DTLS 握手完成后才能获取证书信息</td></tr>';
+      }
+
+      updateTestUI('cert-fingerprint', detail.includes('指纹') ? 'pass' : 'warn',
+        `<table>${detail}</table>
+        <div class="recommendation">
+          <strong>💡 指纹作用：</strong>SDP 中的 <code>a=fingerprint</code> 就是此值。<br>
+          如果信令服务器修改了 SDP 内容导致指纹不匹配，DTLS 握手直接失败。
+        </div>`);
+      pc.close();
+      resolve(true);
+    }, 3000);
+
+    pc.createDataChannel('cert-test');
+    const pc2 = new RTCPeerConnection({ iceServers: [] });
+    pc.createOffer().then(o => pc.setLocalDescription(o)).then(() =>
+      pc2.setRemoteDescription(pc.localDescription)
+    ).then(() => pc2.createAnswer()).then(a => pc2.setLocalDescription(a)).then(() => {
+      pc.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); };
+      pc2.onicecandidate = (e) => { if (e.candidate) pc.addIceCandidate(e.candidate); };
+      setTimeout(() => {
+        pc.setRemoteDescription(pc2.localDescription);
+        // 等待连接建立
+        const checkInterval = setInterval(async () => {
+          if (pc.connectionState === 'connected') {
+            clearInterval(checkInterval);
+            clearTimeout(timeout);
+            timeout.dispatchEvent?.(new Event('timeout'));
+            pc2.close();
+          }
+        }, 200);
+        // 超时回退
+        setTimeout(() => { clearInterval(checkInterval); pc2.close(); }, 5000);
+      }, 1500);
+    });
+  });
+}
+
+// 10. 端到端连接耗时
+async function testConnectionSpeed() {
+  updateTestUI('connection-speed', 'running');
+  addTimeline('⏱️ 测量端到端连接耗时...');
+
+  return new Promise(resolve => {
+    const startTime = performance.now();
+    const pc1 = new RTCPeerConnection({ iceServers: [] });
+    const pc2 = new RTCPeerConnection({ iceServers: [] });
+    const milestones = {};
+    let seq = 0;
+
+    const record = (name) => {
+      milestones[name] = (performance.now() - startTime).toFixed(0);
+    };
+
+    const timeout = setTimeout(() => {
+      pc1.close(); pc2.close();
+      const detail = Object.entries(milestones).map(([k, v]) =>
+        `<tr><td>${k}</td><td>${v}ms</td></tr>`
+      ).join('');
+
+      updateTestUI('connection-speed', 'warn', `
+        <table>${detail}</table>
+        <div class="recommendation warn">⚠️ 连接未在 5s 内完成（可能超时）</div>
+      `);
+      resolve(false);
+    }, 8000);
+
+    record('开始');
+
+    pc1.onconnectionstatechange = () => {
+      record(`PC1 ${pc1.connectionState}`);
+      if (pc1.connectionState === 'connected') {
+        clearTimeout(timeout);
+        setTimeout(() => {
+          pc1.close(); pc2.close();
+          const total = milestones['PC1 connected'] || 'N/A';
+          const detail = Object.entries(milestones).map(([k, v]) =>
+            `<tr><td>${k}</td><td class="${parseInt(v) < 500 ? 'val-pass' : 'val-warn'}">${v}ms</td></tr>`
+          ).join('');
+
+          updateTestUI('connection-speed', parseInt(total) < 500 ? 'pass' : 'warn', `
+            <table>
+              <tr><td>总连接耗时</td><td class="${parseInt(total) < 200 ? 'val-pass' : 'val-warn'}">${total}ms</td></tr>
+            </table>
+            <div style="margin-top:8px;font-weight:600;">各阶段耗时：</div>
+            <table>${detail}</table>
+            <div class="recommendation ${parseInt(total) > 1000 ? 'fail' : ''}">
+              <strong>${parseInt(total) > 1000 ? '⛔ 连接耗时过长' : '✅ 连接耗时正常'}</strong><br>
+              ${parseInt(total) > 1000
+                ? '本地 Loopback >1s 说明浏览器本身有问题（策略/扩展/版本）。远程 DTLS 超时通常更严重。'
+                : '本地 DTLS 握手正常。如果远程 DTLS 超时，差值是网络延迟 + 丢包导致。'}
+            </div>
+          `);
+          addTimeline(`⏱️ 连接完成: ${total}ms`);
+          resolve(true);
+        }, 500);
+      }
+    };
+
+    const dc = pc1.createDataChannel('speed-test');
+    dc.onopen = () => record('DataChannel Open');
+
+    pc1.createOffer().then(o => {
+      record('Offer Created');
+      return pc1.setLocalDescription(o);
+    }).then(() => {
+      record('LocalDesc Set');
+      return pc2.setRemoteDescription(pc1.localDescription);
+    }).then(() => {
+      record('RemoteDesc Set');
+      return pc2.createAnswer();
+    }).then(a => {
+      record('Answer Created');
+      return pc2.setLocalDescription(a);
+    }).then(() => {
+      pc1.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); };
+      pc2.onicecandidate = (e) => { if (e.candidate) pc1.addIceCandidate(e.candidate); };
+      setTimeout(() => {
+        pc1.setRemoteDescription(pc2.localDescription);
+        record('Candidates Exchanged');
+      }, 1000);
+    });
+  });
+}
+
+// ========== 🧠 DTLS 失败根因分析 ==========
+// 综合以下信号，输出 "DTLS 为什么失败" 的排序假设与行动建议：
+//   1. RTCError 事件（errorDetail='dtls-failure' + receivedAlert 告警码）——最关键
+//   2. 本地 Loopback 结果（区分本地 vs 网络问题）
+//   3. 丢包率（网络路径健康度）
+//   4. ICE 状态与 TURN 结果
+//   5. 企业扩展/策略检测结果
+async function testDTLSFailureAnalysis() {
+  updateTestUI('dtls-failure-analysis', 'running');
+  addTimeline('🧠 开始 DTLS 失败根因综合分析...');
+
+  const evidence = { rtcErrors: [], loopback: null, loss: null, turn: null, extensions: null };
+  const hypotheses = [];
+
+  // ---- 汇总各测试结果 ----
+  const getResult = (id) => results[id]?.status || 'pending';
+  const getDetail = (id) => results[id]?.detail || '';
+
+  evidence.loopback = getResult('dtls-local');
+  evidence.loss = results['packet-loss']?.status;
+  evidence.extensions = results['extension-audit']?.status;
+
+  // 从 RTCError 中提取 DTLS 相关告警
+  const dtlsErrors = lastRTCErrors.filter(e =>
+    e.errorDetail === 'dtls-failure' || e.errorDetail === 'fingerprint-failure' || e.receivedAlert !== null
+  );
+
+  // ---- 决策树：生成排序假设 ----
+
+  // 假设 1：TLS 中间人 / 证书被篡改
+  const certAlerts = dtlsErrors.filter(e => [42, 46, 48, 51].includes(e.receivedAlert));
+  if (certAlerts.length > 0) {
+    hypotheses.push({
+      rank: 1,
+      icon: '🔴',
+      title: '证书验证失败 — TLS 中间人/扩展拦截（最高嫌疑）',
+      evidence: `收到 DTLS alert ${certAlerts[0].receivedAlert} (${decodeDTLSAlert(certAlerts[0].receivedAlert)})`,
+      action: '这是 Island Engine/强制扩展做 TLS 中间人检查的典型症状。DTLS 自签证书被中间人替换 → 客户端验证失败静默丢弃。请让 IT 创建无强制扩展的测试策略组验证。',
+    });
+  } else if (evidence.extensions === 'fail') {
+    hypotheses.push({
+      rank: 1,
+      icon: '🔴',
+      title: '强制扩展 / Island Engine 拦截 DTLS 流量',
+      evidence: '扩展审查检测到高风险扩展，但未捕获到证书类 alert（浏览器可能静默丢弃而非发 alert）',
+      action: '让 IT 用无强制扩展的测试策略组复现。若恢复，逐个加回扩展定位。',
+    });
+  }
+
+  // 假设 2：MTU 黑洞 / UDP 分片被丢弃
+  if (evidence.loopback === 'fail' || evidence.loss === 'fail') {
+    const mtuDetail = getDetail('mtu-probe');
+    const hasMTUWarning = mtuDetail.includes('MTU') || mtuDetail.includes('分片');
+    hypotheses.push({
+      rank: hypotheses.length === 0 ? 1 : 2,
+      icon: '🟠',
+      title: 'MTU 黑洞 / UDP 分片被丢弃（VPN 或防火墙）',
+      evidence: hasMTUWarning ? 'MTU 探测提示受限' : `丢包率异常(${evidence.loss}) 或本地握手失败`,
+      action: '让客户断开 VPN 对比测试。若恢复 → 确认 VPN MTU 问题。服务器侧缩短证书链（≤2 个中间证书）可缓解。',
+    });
+  }
+
+  // 假设 3：丢包导致握手重传耗尽
+  if (evidence.loss === 'fail') {
+    hypotheses.push({
+      rank: 1,
+      icon: '🟠',
+      title: 'UDP 丢包率过高导致 DTLS 握手重传超时',
+      evidence: '丢包率测量失败（见 📉 丢包率测量卡片）',
+      action: 'ICE 小包能通但 DTLS 大包会丢。建议：开启 TURN/TCP 兜底路径，或改善网络质量。',
+    });
+  }
+
+  // 假设 4：信令路径 SDP 篡改（指纹/角色）
+  const fingerprintErrors = dtlsErrors.filter(e => e.errorDetail === 'fingerprint-failure');
+  if (fingerprintErrors.length > 0) {
+    hypotheses.push({
+      rank: 1,
+      icon: '🟡',
+      title: 'SDP 指纹不匹配 — 信令路径篡改',
+      evidence: `errorDetail=fingerprint-failure`,
+      action: '检查信令服务器是否原样转发 SDP。对比两端 a=fingerprint 是否一致。',
+    });
+  }
+
+  // 假设 5：本地浏览器问题
+  if (evidence.loopback === 'fail' && evidence.loss !== 'fail') {
+    hypotheses.push({
+      rank: hypotheses.length === 0 ? 1 : 3,
+      icon: '🟡',
+      title: '浏览器本地 DTLS 实现问题（非网络）',
+      evidence: '本地 Loopback DTLS 失败，但网络丢包正常 → 问题在浏览器本身',
+      action: '尝试：升级浏览器、禁用扩展（incognito/无痕模式）、检查企业策略。',
+    });
+  }
+
+  // 假设 6：版本/套件不兼容
+  if (evidence.loopback !== 'fail') {
+    hypotheses.push({
+      rank: 4,
+      icon: '🟢',
+      title: 'DTLS 版本/加密套件不兼容',
+      evidence: '本地握手正常，但远程可能因版本协商失败',
+      action: '服务端检查 TLS 版本下限。DTLS 1.3 (RFC 9147) 在部分浏览器需 flag 开启。',
+    });
+  }
+
+  // ---- 构建输出 ----
+  const sorted = hypotheses.sort((a, b) => a.rank - b.rank);
+  const hypRows = sorted.map(h =>
+    `<tr>
+      <td>${h.icon} ${h.title}</td>
+      <td style="font-size:0.78em;">${h.evidence}</td>
+    </tr>`
+  ).join('');
+
+  const actionRows = sorted.map(h =>
+    `<tr><td>${h.icon}</td><td style="font-size:0.8em;">${h.action}</td></tr>`
+  ).join('');
+
+  const rtcErrorRows = lastRTCErrors.length > 0 ? lastRTCErrors.map(e =>
+    `<tr>
+      <td>${e.label}</td>
+      <td>${e.time}</td>
+      <td>${e.errorDetail}</td>
+      <td class="${e.receivedAlert !== null ? 'val-fail' : 'val-warn'}">${e.receivedAlert !== null ? e.receivedAlert + ' (' + e.receivedAlertText + ')' : 'N/A'}</td>
+    </tr>`
+  ).join('') : '<tr><td colspan="4" class="val-warn">未捕获到 RTCError（本地路径无故障）</td></tr>';
+
+  // 综合判定
+  const overall = dtlsErrors.length > 0 ? 'fail' :
+    evidence.loss === 'fail' ? 'fail' :
+    evidence.extensions === 'fail' ? 'fail' :
+    evidence.loopback === 'fail' ? 'warn' : 'pass';
+
+  updateTestUI('dtls-failure-analysis', overall, `
+    <div style="margin-top:4px;font-weight:600;color:var(--accent);">📡 捕获的 RTCError / DTLS 告警：</div>
+    <table style="margin-top:6px;">
+      <tr><th style="text-align:left;color:var(--muted);">来源</th><th style="text-align:left;color:var(--muted);">时间</th><th style="text-align:left;color:var(--muted);">errorDetail</th><th style="text-align:left;color:var(--muted);">DTLS alert</th></tr>
+      ${rtcErrorRows}
+    </table>
+
+    <div style="margin-top:12px;font-weight:600;color:${overall === 'pass' ? 'var(--pass)' : 'var(--fail)'};">🎯 失败原因排序（决策树输出）：</div>
+    ${sorted.length > 0 ? `<table style="margin-top:6px;">
+      <tr><th style="text-align:left;color:var(--muted);">候选原因</th><th style="text-align:left;color:var(--muted);">证据</th></tr>
+      ${hypRows}
+    </table>` : '<div style="margin-top:6px;" class="val-pass">✅ 本地路径未发现 DTLS 故障。若生产环境仍失败，最可能的原因在<b>真实信令路径</b>（SDP 篡改/真实服务器配置）——本页面无法覆盖，需服务器侧抓包。</div>'}
+
+    <div style="margin-top:12px;font-weight:600;">🛠️ 建议行动（按优先级）：</div>
+    <table style="margin-top:6px;">${actionRows}</table>
+
+    ${overall === 'pass' ? `
+    <div class="recommendation">
+      <strong>🔍 本地诊断全部通过，下一步：</strong><br>
+      1. 在受影响客户机上运行本工具（连 VPN）→ 对比本文结果<br>
+      2. 服务器侧用 tcpdump 抓包确认 DTLS 握手停在哪一步<br>
+      3. 检查信令服务器是否原样传递 SDP（指纹/ICE 候选）
+    </div>` : ''}
+  `);
+  addTimeline(`🧠 根因分析完成: 捕获 ${dtlsErrors.length} 个 DTLS 错误, ${sorted.length} 条假设`);
+  return overall !== 'fail';
+}
+
+// ========== 运行全部测试 ==========
+async function runAllTests() {
+  document.getElementById('btnRunAll').disabled = true;
+  addTimeline('🚀 开始运行全部诊断...');
+
+  const testOrder = [
+    testWebRTCAPI,
+    testICECandidates,
+    testUDPSocket,
+    testPacketLoss,
+    testPolicyCheck,
+    testEnterprisePolicy,
+    testExtensionAudit,
+    testMediaPermission,
+    testNetworkType,
+    testTLSVersion,
+    testCertFingerprint,
+    testDTLSLocal,
+    testMTUProbe,
+    testConnectionSpeed,
+    testDTLSFailureAnalysis,
+  ];
+
+  for (const test of testOrder) {
+    try {
+      await test();
+    } catch (e) {
+      addTimeline(`💥 测试异常: ${e.message}`);
+    }
+    // 小延迟让 UI 更新
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  document.getElementById('btnRunAll').disabled = false;
+  addTimeline('✅ 全部诊断完成');
+}
+
+// ========== 导出报告 ==========
+function exportResults() {
+  const report = {
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    pageUrl: window.location.href,
+    results,
+    timeline,
+    browserInfo: {
+      language: navigator.language,
+      cookieEnabled: navigator.cookieEnabled,
+      onLine: navigator.onLine,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      deviceMemory: navigator.deviceMemory || 'N/A',
+      isIslandBrowser: navigator.userAgent.includes('Island') || navigator.userAgent.includes('IslandBrowser'),
+    },
+    enterprisePolicyFlags: {
+      chromeManagementAvailable: typeof chrome !== 'undefined' && !!chrome.management,
+      permissionsApiAvailable: !!(navigator.permissions && navigator.permissions.query),
+      currentHostname: window.location.hostname,
+      turnServerConfigured: !!CONFIG.turnServer,
+    },
+    rtcErrors: lastRTCErrors,
+  };
+
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `dtls-diagnosis-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  addTimeline('📋 诊断报告已导出');
+}
+
+// ========== 页面加载时自动检测基础信息 ==========
+addTimeline(`🖥️ 浏览器: ${navigator.userAgent.substring(0, 80)}...`);
+addTimeline(`📡 在线状态: ${navigator.onLine ? '在线' : '离线'}`);
+addTimeline(`💾 设备内存: ${navigator.deviceMemory || 'N/A'}GB | CPU: ${navigator.hardwareConcurrency} 核`);
+addTimeline(`🌐 当前域名: ${window.location.hostname}`);
+
+// 检测已知的企业浏览器
+if (navigator.userAgent.includes('Island') || navigator.userAgent.includes('IslandBrowser')) {
+  addTimeline('🔔 检测到 Island Browser — 企业策略可能影响 WebRTC/DTLS');
+  addTimeline('⚠️ 已知问题: Island Expert 策略中 URLBlocklist 封锁了 chrome://webrtc-internals');
+  addTimeline('⚠️ 已知问题: Island Engine 扩展可能对 DTLS 做 TLS 中间人检查');
+}
+
+// 检测 chrome.management API
+if (typeof chrome !== 'undefined' && chrome.management) {
+  addTimeline('✅ chrome.management API 可用 — 可检测企业强制扩展');
+} else {
+  addTimeline('⚠️ chrome.management API 不可用 — 将使用 URL 探测检测扩展');
+}
+
+// 检测 Permissions API
+if (navigator.permissions && navigator.permissions.query) {
+  addTimeline('✅ Permissions API 可用');
+} else {
+  addTimeline('⚠️ Permissions API 不可用 — 无法查询摄像头/麦克风权限状态');
+}
+
+// 验证当前域名是否在 Island 白名单中
+const islAllowedDomains = ['intuit.com', 'zoom.us', 'awsapps.com'];
+const currentHost = window.location.hostname;
+const matchedDomain = islAllowedDomains.find(d => currentHost.includes(d));
+if (matchedDomain) {
+  addTimeline(`✅ 当前域名 [${currentHost}] 匹配 Island 白名单 [${matchedDomain}]`);
+} else {
+  addTimeline(`⚠️ 当前域名 [${currentHost}] 不在 Island Expert 媒体白名单中`);
+}
+</script>
+</body>
+</html>
