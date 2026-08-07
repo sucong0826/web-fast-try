@@ -12,6 +12,7 @@ import {
   Cpu,
   Zap,
   Users,
+  ShieldCheck,
 } from "lucide-react";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -26,6 +27,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Cpu,
   Zap,
   Users,
+  ShieldCheck,
 };
 
 const categoryStyle: Record<string, { icon: string; badge: string }> = {

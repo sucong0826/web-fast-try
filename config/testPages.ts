@@ -41,6 +41,14 @@ export const testPages: TestPage[] = [
     category: "Network"
   },
   {
+    id: "dtls-network-diagnosis",
+    title: "DTLS Network Diagnosis",
+    description: "Diagnose WebRTC DTLS handshake and network conditions",
+    icon: "ShieldCheck",
+    path: "/test/dtls-network-diagnosis",
+    category: "Network"
+  },
+  {
     id: "device-info",
     title: "Device Info",
     description: "Display device information",
@@ -137,4 +145,3 @@ export const testPages: TestPage[] = [
     category: "Debug"
   }
 ];
-
