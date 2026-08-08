@@ -13,6 +13,7 @@ import {
   Zap,
   Users,
   ShieldCheck,
+  Timer,
 } from "lucide-react";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -28,6 +29,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Zap,
   Users,
   ShieldCheck,
+  Timer,
 };
 
 const categoryStyle: Record<string, { icon: string; badge: string }> = {
