@@ -81,6 +81,14 @@ export const testPages: TestPage[] = [
     category: "Debug"
   },
   {
+    id: "ntp-capture-timestamp",
+    title: "NTP Capture Timestamp",
+    description: "Capture camera timestamps and compare Q32.32 NTP values",
+    icon: "Timer",
+    path: "/test/ntp-capture-timestamp",
+    category: "Debug"
+  },
+  {
     id: "tfjs-gpu",
     title: "TF.js GPU",
     description: "TensorFlow.js GPU acceleration test",

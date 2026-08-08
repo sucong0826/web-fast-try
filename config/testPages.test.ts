@@ -11,4 +11,14 @@ describe("testPages", () => {
       }),
     );
   });
+
+  it("registers the NTP capture timestamp route", () => {
+    expect(testPages).toContainEqual(
+      expect.objectContaining({
+        id: "ntp-capture-timestamp",
+        path: "/test/ntp-capture-timestamp",
+        category: "Debug",
+      }),
+    );
+  });
 });
