@@ -256,6 +256,11 @@ export default function NtpCaptureTimestampPage() {
             value.close();
           }
         }
+
+        if (runningRef.current) {
+          log("Video frame stream ended; stopping capture.");
+          stopCapture(false);
+        }
       } catch (error) {
         if (runningRef.current) {
           readerRef.current = null;
@@ -265,25 +270,31 @@ export default function NtpCaptureTimestampPage() {
         }
       }
     },
-    [captureRow, log, startFallbackCapture],
+    [captureRow, log, startFallbackCapture, stopCapture],
   );
 
   const startCapture = useCallback(async () => {
     if (runningRef.current) return;
 
     if (typeof BigInt !== "function") {
+      const message =
+        "BigInt is unavailable; this browser cannot preserve Q32.32 NTP precision.";
       setCameraStatus({
-        text: "BigInt is unavailable; this browser cannot preserve Q32.32 NTP precision.",
+        text: message,
         tone: "error",
       });
+      log(message);
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
+      const message =
+        "Camera capture is unavailable. Open this page on localhost or HTTPS.";
       setCameraStatus({
-        text: "Camera capture is unavailable. Open this page on localhost or HTTPS.",
+        text: message,
         tone: "error",
       });
+      log(message);
       return;
     }
 

@@ -129,7 +129,7 @@ Run: `npm run dev`
 
 At `/test/ntp-capture-timestamp`, check camera permission flow, native/fallback source label, server matching, and visible CSV success/failure feedback.
 
-- [ ] **Step 6: Run full verification and commit**
+- [x] **Step 6: Run full verification and commit**
 
 ```bash
 npm test
