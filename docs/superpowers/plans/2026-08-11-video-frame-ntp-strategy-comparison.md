@@ -231,7 +231,7 @@ Show the latest raw timestamp, `performance.timeOrigin`, observation `performanc
 - UTC output derived from Unix time when meaningful;
 - a confidence badge: `invalid unless guaranteed`, `plausible/unverified`, `estimate`, or `reference mapped`.
 
-The naive card must display the expected 1973 date for sample value `106574320365`, making the failure mode visible.
+The naive card must display the expected `1970-01-02` date for sample value `106574320365`, making the failure mode visible.
 
 - [ ] **Step 6: Expand comparison and CSV output**
 

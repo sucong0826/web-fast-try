@@ -71,7 +71,7 @@ The utility layer will represent absolute time internally as integer microsecond
   - `VideoFrame.timestamp = 106574320365` microseconds.
   - Server NTP epoch milliseconds `3995421530355`.
 - Verify that the manual-anchor strategy maps the reference sample exactly and advances later frames by their media-timestamp delta.
-- Verify that the naive strategy exposes the 1973 result rather than labeling it correct.
+- Verify that the naive strategy exposes the 1970-01-02 result rather than labeling it correct.
 - Render-test the new strategy and server-format controls.
 - Run focused tests, the full Vitest suite, TypeScript/Next.js production build, and manual camera validation on localhost or HTTPS.
 
