@@ -1,6 +1,9 @@
-const MICROSECONDS_PER_SECOND = 1_000_000n;
+import {
+  NTP_UNIX_EPOCH_OFFSET_US,
+  ntpEpochUsToQ32_32,
+} from "./video-frame-ntp";
+
 const MILLISECONDS_PER_SECOND = 1_000n;
-const NTP_UNIX_EPOCH_OFFSET_SECONDS = 2_208_988_800n;
 const NTP_FRACTION_SCALE = 1n << 32n;
 
 export interface NtpTimestampParts {
@@ -21,16 +24,9 @@ export function unixEpochUsToNtpTimestamp(unixEpochUs: number): string {
     );
   }
 
-  const unixUs = BigInt(unixEpochUs);
-  const seconds =
-    unixUs / MICROSECONDS_PER_SECOND + NTP_UNIX_EPOCH_OFFSET_SECONDS;
-  const microsecondsWithinSecond = unixUs % MICROSECONDS_PER_SECOND;
-  const fraction =
-    (microsecondsWithinSecond * NTP_FRACTION_SCALE +
-      MICROSECONDS_PER_SECOND / 2n) /
-    MICROSECONDS_PER_SECOND;
-
-  return ((seconds << 32n) | fraction).toString();
+  return ntpEpochUsToQ32_32(
+    BigInt(unixEpochUs) + NTP_UNIX_EPOCH_OFFSET_US,
+  );
 }
 
 export function ntpTimestampToParts(ntpTimestamp: string): NtpTimestampParts {
