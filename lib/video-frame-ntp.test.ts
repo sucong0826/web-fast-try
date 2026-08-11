@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildNtpComparisonCsv,
   calculateFrameTimestampStrategies,
+  createClientFrameAnchor,
+  createServerFrameAnchor,
+  findNearestNtpEpochUs,
   formatNtpEpochMilliseconds,
   normalizeServerNtpTimestamp,
   ntpEpochUsToQ32_32,
@@ -103,5 +107,105 @@ describe("VideoFrame timestamp strategies", () => {
     });
 
     expect(strategies.manualServerNtpEpochUs).toBeNull();
+  });
+
+  it("keeps the first client anchor for later epoch-like or fallback rows", () => {
+    const first = createClientFrameAnchor(null, 1786432730355000, 1786432730360000);
+    const second = createClientFrameAnchor(
+      first,
+      1786432730388333,
+      1786432730395000,
+    );
+
+    expect(second).toEqual(first);
+  });
+
+  it.each([
+    ["", "3995421530355"],
+    ["not-a-frame", "3995421530355"],
+    ["106574320365", "4294967296000"],
+  ])(
+    "rejects an invalid manual server anchor (%s, %s)",
+    (frameTimestamp, serverTimestamp) => {
+      expect(() =>
+        createServerFrameAnchor(frameTimestamp, serverTimestamp, "epoch-ms"),
+      ).toThrow(RangeError);
+    },
+  );
+
+  it("returns no manual mapping when the media delta underflows NTP era zero", () => {
+    const strategies = calculateFrameTimestampStrategies({
+      ...baseInput,
+      frameTimestampUs: 1,
+      serverAnchor: {
+        frameTimestampUs: 106574320365,
+        ntpEpochUs: 0n,
+      },
+    });
+
+    expect(strategies.manualServerNtpEpochUs).toBeNull();
+  });
+});
+
+describe("server comparison and export", () => {
+  it("compares exact microseconds before applying millisecond tolerance", () => {
+    expect(
+      findNearestNtpEpochUs([3995421530375490n], 3995421530355000n, 20),
+    ).toEqual({
+      index: 0,
+      serverNtpEpochUs: 3995421530375490n,
+      diffUs: 20490n,
+      diffMs: 20.49,
+      matched: false,
+    });
+  });
+
+  it("exports every clock anchor and normalized matched server value", () => {
+    const strategies = calculateFrameTimestampStrategies({
+      frameTimestampUs: 106574320365,
+      observedUnixEpochUs: 1786432730355000,
+      performanceTimeOriginMs: 1786326156034.635,
+      performanceNowMs: 106574320.365,
+      clientAnchor: {
+        frameTimestampUs: 106574320365,
+        unixEpochUs: 1786432730355000,
+      },
+      serverAnchor: {
+        frameTimestampUs: 106574320365,
+        ntpEpochUs: 3995421530355000n,
+      },
+    });
+
+    const csv = buildNtpComparisonCsv({
+      rows: [
+        {
+          id: 7,
+          source: "native frame",
+          frameTimestampUs: 106574320365,
+          observedUnixEpochUs: 1786432730355000,
+          performanceTimeOriginMs: 1786326156034.635,
+          performanceNowMs: 106574320.365,
+          clientAnchor: {
+            frameTimestampUs: 106574320365,
+            unixEpochUs: 1786432730355000,
+          },
+          strategies,
+        },
+      ],
+      serverFormat: "epoch-ms",
+      serverAnchor: {
+        frameTimestampUs: 106574320365,
+        ntpEpochUs: 3995421530355000n,
+      },
+      toleranceMs: 20,
+      serverTimestamps: [3995421530355000n],
+    });
+
+    expect(csv).toContain("client_anchor_frame_timestamp_us");
+    expect(csv).toContain("manual_reference_ntp_epoch_us");
+    expect(csv).toContain("manual-anchor_matched_server_ntp_epoch_us");
+    expect(csv).toContain(
+      "106574320365,1786432730355000,106574320365,3995421530355000,epoch-ms,20",
+    );
   });
 });

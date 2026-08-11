@@ -13,12 +13,14 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  findNearestNtpTimestamp,
-} from "@/lib/ntp-timestamp";
-import {
+  buildNtpComparisonCsv,
   calculateFrameTimestampStrategies,
+  createClientFrameAnchor,
+  createServerFrameAnchor,
+  findNearestNtpEpochUs,
   formatNtpEpochMilliseconds,
   FrameTimestampStrategies,
+  getStrategyNtpEpochUs,
   normalizeServerNtpTimestamp,
   NTP_UNIX_EPOCH_OFFSET_US,
   ntpEpochUsToQ32_32,
@@ -105,20 +107,6 @@ const STRATEGIES: {
   },
 ];
 
-function getStrategyNtpEpochUs(
-  strategies: FrameTimestampStrategies,
-  key: StrategyKey,
-): bigint | null {
-  if (key === "manual-anchor") return strategies.manualServerNtpEpochUs;
-  const unixEpochUs =
-    key === "naive"
-      ? strategies.naiveUnixEpochUs
-      : key === "time-origin"
-        ? strategies.timeOriginUnixEpochUs
-        : strategies.clientAnchorUnixEpochUs;
-  return unixEpochUs + NTP_UNIX_EPOCH_OFFSET_US;
-}
-
 function getStrategyUnixEpochUs(
   strategies: FrameTimestampStrategies,
   key: StrategyKey,
@@ -182,7 +170,7 @@ export default function NtpCaptureTimestampPage() {
   const [running, setRunning] = useState(false);
   const [serverFormat, setServerFormat] = useState<ServerNtpFormat>("epoch-ms");
   const [serverInput, setServerInput] = useState(SAMPLE_SERVER_NTP_MS);
-  const [serverTimestamps, setServerTimestamps] = useState<string[]>([]);
+  const [serverTimestamps, setServerTimestamps] = useState<bigint[]>([]);
   const [serverInputError, setServerInputError] = useState("");
   const [referenceFrameTimestampUs, setReferenceFrameTimestampUs] = useState(
     String(SAMPLE_FRAME_TIMESTAMP_US),
@@ -240,11 +228,13 @@ export default function NtpCaptureTimestampPage() {
       const performanceNowMs = performance.now();
       const performanceTimeOriginMs = performance.timeOrigin;
       const observedUnixEpochUs = epochNowUs();
+      const clientAnchor = createClientFrameAnchor(
+        anchorRef.current,
+        videoFrameTimestampUs,
+        observedUnixEpochUs,
+      );
+      anchorRef.current = clientAnchor;
       const estimate = estimateUnixEpochUs(videoFrameTimestampUs, source);
-      const clientAnchor = anchorRef.current ?? {
-        frameTimestampUs: videoFrameTimestampUs,
-        unixEpochUs: observedUnixEpochUs,
-      };
 
       setRows((previous) => {
         const nextRow: CaptureRow = {
@@ -458,32 +448,50 @@ export default function NtpCaptureTimestampPage() {
     anchor: ServerFrameAnchor | null;
     error: string;
   }>(() => {
-    const frameTimestampUs = Number(referenceFrameTimestampUs);
-    if (!Number.isSafeInteger(frameTimestampUs) || frameTimestampUs < 0) {
-      return {
-        anchor: null,
-        error: "Reference VideoFrame timestamp must be a non-negative integer in microseconds.",
-      };
-    }
-
     try {
-      return {
-        anchor: {
-          frameTimestampUs,
-          ntpEpochUs: normalizeServerNtpTimestamp(
-            referenceServerNtp,
-            serverFormat,
-          ),
-        },
-        error: "",
-      };
+      const anchor = createServerFrameAnchor(
+        referenceFrameTimestampUs,
+        referenceServerNtp,
+        serverFormat,
+      );
+      const samples =
+        rows.length > 0
+          ? rows
+          : [
+              {
+                captureTimestampUs: SAMPLE_FRAME_TIMESTAMP_US,
+                observedUnixEpochUs: 1786432730355000,
+                performanceTimeOriginMs: 1786326156034.635,
+                performanceNowMs: 106574320.365,
+                clientAnchor: {
+                  frameTimestampUs: SAMPLE_FRAME_TIMESTAMP_US,
+                  unixEpochUs: 1786432730355000,
+                },
+              },
+            ];
+      const hasOutOfRangeMapping = samples.some((row) =>
+        calculateFrameTimestampStrategies({
+          frameTimestampUs: row.captureTimestampUs,
+          observedUnixEpochUs: row.observedUnixEpochUs,
+          performanceTimeOriginMs: row.performanceTimeOriginMs,
+          performanceNowMs: row.performanceNowMs,
+          clientAnchor: row.clientAnchor,
+          serverAnchor: anchor,
+        }).manualServerNtpEpochUs === null,
+      );
+      if (hasOutOfRangeMapping) {
+        throw new RangeError(
+          "The manual anchor maps the current frame outside the NTP Q32.32 era range.",
+        );
+      }
+      return { anchor, error: "" };
     } catch (error) {
       return {
         anchor: null,
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  }, [referenceFrameTimestampUs, referenceServerNtp, serverFormat]);
+  }, [referenceFrameTimestampUs, referenceServerNtp, rows, serverFormat]);
 
   const calculatedRows = useMemo<CalculatedCaptureRow[]>(
     () =>
@@ -535,9 +543,9 @@ export default function NtpCaptureTimestampPage() {
                 strategy.key,
                 ntpEpochUs === null
                   ? null
-                  : findNearestNtpTimestamp(
+                  : findNearestNtpEpochUs(
                       serverTimestamps,
-                      ntpEpochUsToQ32_32(ntpEpochUs),
+                      ntpEpochUs,
                       toleranceMs,
                     ),
               ] as const;
@@ -554,9 +562,11 @@ export default function NtpCaptureTimestampPage() {
       if (values.length === 0) {
         throw new RangeError("Enter at least one server NTP timestamp.");
       }
-      const normalized = values.map((value) =>
-        ntpEpochUsToQ32_32(normalizeServerNtpTimestamp(value, serverFormat)),
-      );
+      const normalized = values.map((value) => {
+        const ntpEpochUs = normalizeServerNtpTimestamp(value, serverFormat);
+        ntpEpochUsToQ32_32(ntpEpochUs);
+        return ntpEpochUs;
+      });
       setServerTimestamps(normalized);
       setServerInputError("");
       log(
@@ -590,56 +600,28 @@ export default function NtpCaptureTimestampPage() {
   };
 
   const copyCsv = async () => {
-    const header = [
-      "frame_idx",
-      "timestamp_source",
-      "frame_timestamp_us",
-      "observed_unix_us",
-      "performance_time_origin_ms",
-      "performance_now_ms",
-      "performance_delta_ms",
-      "time_origin_plausible",
-      ...STRATEGIES.flatMap((strategy) => [
-        `${strategy.key}_ntp_epoch_ms`,
-        `${strategy.key}_ntp_q32_32`,
-        `${strategy.key}_server_index`,
-        `${strategy.key}_diff_ms`,
-      ]),
-    ];
-    const lines = calculatedRows.map((row) => {
-      const values: (string | number)[] = [
-        row.id,
-        JSON.stringify(row.source),
-        row.captureTimestampUs,
-        row.observedUnixEpochUs,
-        row.performanceTimeOriginMs,
-        row.performanceNowMs,
-        row.strategies.performanceDeltaMs,
-        String(row.strategies.timeOriginPlausible),
-      ];
-
-      STRATEGIES.forEach((strategy) => {
-        const ntpEpochUs = getStrategyNtpEpochUs(
-          row.strategies,
-          strategy.key,
-        );
-        const match = matches.get(row.id)?.get(strategy.key) ?? null;
-        values.push(
-          ntpEpochUs === null ? "" : formatNtpEpochMilliseconds(ntpEpochUs),
-          ntpEpochUs === null ? "" : ntpEpochUsToQ32_32(ntpEpochUs),
-          match?.index ?? "",
-          match?.diffMs ?? "",
-        );
-      });
-
-      return values.join(",");
+    const csv = buildNtpComparisonCsv({
+      rows: calculatedRows.map((row) => ({
+        id: row.id,
+        source: row.source,
+        frameTimestampUs: row.captureTimestampUs,
+        observedUnixEpochUs: row.observedUnixEpochUs,
+        performanceTimeOriginMs: row.performanceTimeOriginMs,
+        performanceNowMs: row.performanceNowMs,
+        clientAnchor: row.clientAnchor,
+        strategies: row.strategies,
+      })),
+      serverFormat,
+      serverAnchor: manualAnchorState.anchor,
+      toleranceMs,
+      serverTimestamps,
     });
 
     try {
       if (!navigator.clipboard?.writeText) {
         throw new Error("Clipboard access is unavailable in this browser.");
       }
-      await navigator.clipboard.writeText([header.join(","), ...lines].join("\n"));
+      await navigator.clipboard.writeText(csv);
       setCopyFeedback(`Copied ${calculatedRows.length} row${calculatedRows.length === 1 ? "" : "s"}`);
       log(`Copied ${calculatedRows.length} row${calculatedRows.length === 1 ? "" : "s"} as CSV.`);
     } catch (error) {

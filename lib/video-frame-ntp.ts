@@ -2,6 +2,7 @@ const MICROSECONDS_PER_SECOND = 1_000_000n;
 const MICROSECONDS_PER_MILLISECOND = 1_000n;
 const NTP_FRACTION_SCALE = 1n << 32n;
 const MAX_NTP_Q32_32 = (1n << 64n) - 1n;
+const MAX_NTP_EPOCH_US = 4_294_967_295_999_999n;
 
 export const NTP_UNIX_EPOCH_OFFSET_US = 2_208_988_800_000_000n;
 export const TIME_ORIGIN_PLAUSIBILITY_WINDOW_MS = 5_000;
@@ -35,6 +36,46 @@ export interface FrameTimestampStrategies {
   performanceDeltaMs: number;
   timeOriginPlausible: boolean;
 }
+
+export type FrameTimestampStrategyKey =
+  | "naive"
+  | "time-origin"
+  | "client-anchor"
+  | "manual-anchor";
+
+export interface NtpEpochMatch {
+  index: number | null;
+  serverNtpEpochUs: bigint | null;
+  diffUs: bigint | null;
+  diffMs: number | null;
+  matched: boolean;
+}
+
+export interface NtpComparisonExportRow {
+  id: number;
+  source: string;
+  frameTimestampUs: number;
+  observedUnixEpochUs: number;
+  performanceTimeOriginMs: number;
+  performanceNowMs: number;
+  clientAnchor: ClientFrameAnchor;
+  strategies: FrameTimestampStrategies;
+}
+
+export interface NtpComparisonExportInput {
+  rows: readonly NtpComparisonExportRow[];
+  serverFormat: ServerNtpFormat;
+  serverAnchor: ServerFrameAnchor | null;
+  toleranceMs: number;
+  serverTimestamps: readonly bigint[];
+}
+
+const FRAME_STRATEGY_KEYS: readonly FrameTimestampStrategyKey[] = [
+  "naive",
+  "time-origin",
+  "client-anchor",
+  "manual-anchor",
+];
 
 function assertNonNegativeSafeInteger(value: number, label: string) {
   if (!Number.isSafeInteger(value) || value < 0) {
@@ -121,6 +162,94 @@ export function normalizeServerNtpTimestamp(
     : q32_32ToNtpEpochUs(value);
 }
 
+export function createServerFrameAnchor(
+  frameTimestampUs: string,
+  serverNtpTimestamp: string,
+  format: ServerNtpFormat,
+): ServerFrameAnchor {
+  const parsedFrameTimestamp = parseUnsignedInteger(
+    frameTimestampUs.trim(),
+    "reference VideoFrame timestamp",
+  );
+  const frameTimestamp = Number(parsedFrameTimestamp);
+  assertNonNegativeSafeInteger(
+    frameTimestamp,
+    "reference VideoFrame timestamp",
+  );
+
+  const ntpEpochUs = normalizeServerNtpTimestamp(serverNtpTimestamp, format);
+  if (ntpEpochUs > MAX_NTP_EPOCH_US) {
+    throw new RangeError("NTP timestamp exceeds unsigned Q32.32 range");
+  }
+  return { frameTimestampUs: frameTimestamp, ntpEpochUs };
+}
+
+export function createClientFrameAnchor(
+  currentAnchor: ClientFrameAnchor | null,
+  frameTimestampUs: number,
+  observedUnixEpochUs: number,
+): ClientFrameAnchor {
+  if (currentAnchor) return currentAnchor;
+  assertNonNegativeSafeInteger(frameTimestampUs, "VideoFrame timestamp");
+  assertNonNegativeSafeInteger(observedUnixEpochUs, "observed Unix timestamp");
+  return { frameTimestampUs, unixEpochUs: observedUnixEpochUs };
+}
+
+export function getStrategyNtpEpochUs(
+  strategies: FrameTimestampStrategies,
+  key: FrameTimestampStrategyKey,
+): bigint | null {
+  if (key === "manual-anchor") return strategies.manualServerNtpEpochUs;
+  const unixEpochUs =
+    key === "naive"
+      ? strategies.naiveUnixEpochUs
+      : key === "time-origin"
+        ? strategies.timeOriginUnixEpochUs
+        : strategies.clientAnchorUnixEpochUs;
+  return unixEpochUs + NTP_UNIX_EPOCH_OFFSET_US;
+}
+
+export function findNearestNtpEpochUs(
+  serverTimestamps: readonly bigint[],
+  targetNtpEpochUs: bigint,
+  toleranceMs: number,
+): NtpEpochMatch {
+  if (!Number.isFinite(toleranceMs) || toleranceMs < 0) {
+    throw new RangeError("Expected a finite, non-negative tolerance");
+  }
+  if (serverTimestamps.length === 0) {
+    return {
+      index: null,
+      serverNtpEpochUs: null,
+      diffUs: null,
+      diffMs: null,
+      matched: false,
+    };
+  }
+
+  let nearestIndex = 0;
+  let nearestDifference: bigint | null = null;
+  serverTimestamps.forEach((candidate, index) => {
+    const difference =
+      candidate >= targetNtpEpochUs
+        ? candidate - targetNtpEpochUs
+        : targetNtpEpochUs - candidate;
+    if (nearestDifference === null || difference < nearestDifference) {
+      nearestDifference = difference;
+      nearestIndex = index;
+    }
+  });
+
+  const diffUs = nearestDifference!;
+  return {
+    index: nearestIndex,
+    serverNtpEpochUs: serverTimestamps[nearestIndex],
+    diffUs,
+    diffMs: Number(diffUs) / 1_000,
+    matched: diffUs <= BigInt(Math.round(toleranceMs * 1_000)),
+  };
+}
+
 export function calculateFrameTimestampStrategies(
   input: FrameTimestampStrategyInput,
 ): FrameTimestampStrategies {
@@ -155,10 +284,14 @@ export function calculateFrameTimestampStrategies(
       input.serverAnchor.frameTimestampUs,
       "server anchor VideoFrame timestamp",
     );
-    manualServerNtpEpochUs =
+    const mappedNtpEpochUs =
       input.serverAnchor.ntpEpochUs +
       frameTimestampUs -
       BigInt(input.serverAnchor.frameTimestampUs);
+    manualServerNtpEpochUs =
+      mappedNtpEpochUs >= 0n && mappedNtpEpochUs <= MAX_NTP_EPOCH_US
+        ? mappedNtpEpochUs
+        : null;
   }
 
   return {
@@ -173,4 +306,73 @@ export function calculateFrameTimestampStrategies(
     timeOriginPlausible:
       Math.abs(performanceDeltaMs) <= TIME_ORIGIN_PLAUSIBILITY_WINDOW_MS,
   };
+}
+
+export function buildNtpComparisonCsv(
+  input: NtpComparisonExportInput,
+): string {
+  const header = [
+    "frame_idx",
+    "timestamp_source",
+    "frame_timestamp_us",
+    "observed_unix_us",
+    "performance_time_origin_ms",
+    "performance_now_ms",
+    "performance_delta_ms",
+    "time_origin_plausible",
+    "client_anchor_frame_timestamp_us",
+    "client_anchor_unix_epoch_us",
+    "manual_reference_frame_timestamp_us",
+    "manual_reference_ntp_epoch_us",
+    "server_format",
+    "tolerance_ms",
+    ...FRAME_STRATEGY_KEYS.flatMap((key) => [
+      `${key}_ntp_epoch_ms`,
+      `${key}_ntp_q32_32`,
+      `${key}_matched_server_ntp_epoch_us`,
+      `${key}_diff_us`,
+      `${key}_diff_ms`,
+    ]),
+  ];
+
+  const lines = input.rows.map((row) => {
+    const values: (string | number)[] = [
+      row.id,
+      JSON.stringify(row.source),
+      row.frameTimestampUs,
+      row.observedUnixEpochUs,
+      row.performanceTimeOriginMs,
+      row.performanceNowMs,
+      row.strategies.performanceDeltaMs,
+      String(row.strategies.timeOriginPlausible),
+      row.clientAnchor.frameTimestampUs,
+      row.clientAnchor.unixEpochUs,
+      input.serverAnchor?.frameTimestampUs ?? "",
+      input.serverAnchor?.ntpEpochUs.toString() ?? "",
+      input.serverFormat,
+      input.toleranceMs,
+    ];
+
+    FRAME_STRATEGY_KEYS.forEach((key) => {
+      const ntpEpochUs = getStrategyNtpEpochUs(row.strategies, key);
+      const match =
+        ntpEpochUs === null
+          ? null
+          : findNearestNtpEpochUs(
+              input.serverTimestamps,
+              ntpEpochUs,
+              input.toleranceMs,
+            );
+      values.push(
+        ntpEpochUs === null ? "" : formatNtpEpochMilliseconds(ntpEpochUs),
+        ntpEpochUs === null ? "" : ntpEpochUsToQ32_32(ntpEpochUs),
+        match?.serverNtpEpochUs?.toString() ?? "",
+        match?.diffUs?.toString() ?? "",
+        match?.diffMs ?? "",
+      );
+    });
+    return values.join(",");
+  });
+
+  return [header.join(","), ...lines].join("\n");
 }
