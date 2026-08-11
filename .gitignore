@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/.worktrees/
 /.pnp
 .pnp.js
 package-lock.json
@@ -36,4 +37,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
