@@ -146,11 +146,13 @@ export function q32_32ToNtpEpochUs(value: string): bigint {
 
   const seconds = timestamp >> 32n;
   const fraction = timestamp & 0xffffffffn;
-  return (
+  const roundedMicroseconds =
     seconds * MICROSECONDS_PER_SECOND +
     (fraction * MICROSECONDS_PER_SECOND + NTP_FRACTION_SCALE / 2n) /
-      NTP_FRACTION_SCALE
-  );
+      NTP_FRACTION_SCALE;
+  return roundedMicroseconds > MAX_NTP_EPOCH_US
+    ? MAX_NTP_EPOCH_US
+    : roundedMicroseconds;
 }
 
 export function normalizeServerNtpTimestamp(

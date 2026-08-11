@@ -38,6 +38,21 @@ describe("NTP timestamp representations", () => {
     expect(q32_32ToNtpEpochUs(q32)).toBe(3995421530355000n);
   });
 
+  it("keeps Q32.32 era boundaries representable at microsecond precision", () => {
+    const maxQ32 = (1n << 64n) - 1n;
+
+    expect(q32_32ToNtpEpochUs("0")).toBe(0n);
+    expect(q32_32ToNtpEpochUs(maxQ32.toString())).toBe(
+      4294967295999999n,
+    );
+    expect(q32_32ToNtpEpochUs((maxQ32 - 2048n).toString())).toBe(
+      4294967295999999n,
+    );
+    expect(ntpEpochUsToQ32_32(4294967295999999n)).toBe(
+      "18446744073709547321",
+    );
+  });
+
   it("normalizes only the explicitly selected server format", () => {
     expect(normalizeServerNtpTimestamp("3995421530355", "epoch-ms")).toBe(
       3995421530355000n,
