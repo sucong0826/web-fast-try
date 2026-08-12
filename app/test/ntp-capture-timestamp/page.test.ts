@@ -3,15 +3,23 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 import NtpCaptureTimestampPage from "./page";
 
-it("renders selectable local-camera timestamp strategies", () => {
+it("prioritizes latest frames and collapses secondary details", () => {
   const page = renderToStaticMarkup(createElement(NtpCaptureTimestampPage));
 
   expect(page).toContain("NTP Capture Timestamp");
   expect(page).toContain("Start capture");
-  expect(page).toContain("2. Calculate");
+  expect(page.indexOf("1. Capture")).toBeLessThan(
+    page.indexOf("2. Latest native frame"),
+  );
+  expect(page.indexOf("2. Latest native frame")).toBeLessThan(
+    page.indexOf("3. Calculate"),
+  );
   expect(page).toContain("Prefer metadata.captureTime");
   expect(page).toContain("Use VideoFrame.timestamp anchor");
   expect(page).toContain("Rolling 64-sample minimum");
+  expect(page).toContain("Browser local time");
+  expect(page).toContain("Show diagnostics");
+  expect(page).toContain("Epoch converter");
   expect(page).toContain("Calculate NTP timestamp");
   expect(page).toContain("2208988800000");
   expect(page).toContain("local wall-clock mapping");

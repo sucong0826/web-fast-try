@@ -24,6 +24,7 @@ import {
   calculateNtpFromFrame,
   calculateNtpFromTimestampAnchor,
   convertEpochMilliseconds,
+  formatLocalTimestamp,
   formatTimestampMilliseconds,
   parseCalculatorValue,
 } from "@/lib/video-frame-ntp-calculator";
@@ -97,6 +98,37 @@ async function copyText(value: string) {
   await navigator.clipboard.writeText(value);
 }
 
+function TimestampInterpretations({
+  unixTimestampMs,
+  utcTimestamp,
+}: {
+  unixTimestampMs: number;
+  utcTimestamp: string;
+}) {
+  const localTimestamp = formatLocalTimestamp(unixTimestampMs);
+
+  return (
+    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+      <div>
+        <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+          UTC interpretation
+        </dt>
+        <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+          {utcTimestamp}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+          Browser local time ({localTimestamp.timeZone})
+        </dt>
+        <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+          {localTimestamp.display}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
 function CalculationResult({
   result,
   copyLabel,
@@ -126,14 +158,6 @@ function CalculationResult({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] p-4 dark:border-white/[0.07] dark:bg-[#202027]">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7e788e] dark:text-[#9a96a9]">
-            Unix epoch milliseconds
-          </p>
-          <p className="mt-2 break-all font-mono text-sm text-[#211d32] dark:text-[#f1f0f6]">
-            {formatTimestampMilliseconds(result.unixTimestampMs)}
-          </p>
-        </div>
         <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4 dark:border-violet-900 dark:from-violet-950/50 dark:to-indigo-950/40">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
             NTP epoch milliseconds
@@ -142,36 +166,36 @@ function CalculationResult({
             {formatTimestampMilliseconds(result.ntpTimestampMs)}
           </p>
         </div>
+        <div className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] p-4 dark:border-white/[0.07] dark:bg-[#202027]">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7e788e] dark:text-[#9a96a9]">
+            Unix epoch milliseconds
+          </p>
+          <p className="mt-2 break-all font-mono text-sm text-[#211d32] dark:text-[#f1f0f6]">
+            {formatTimestampMilliseconds(result.unixTimestampMs)}
+          </p>
+        </div>
       </div>
 
-      <dl className="grid gap-3 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
-            UTC interpretation
-          </dt>
-          <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
-            {result.utcTimestamp}
-          </dd>
-        </div>
-        {isTimestampAnchor ? (
-          <div>
-            <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
-              Anchor diagnostics
-            </dt>
-            <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
-              samples {result.anchorSampleCount} · offset {String(result.anchorOffsetMs ?? 0)} ms · extra delay {formatTimestampMilliseconds(result.observedDelayMs ?? 0)} ms
-            </dd>
-          </div>
-        ) : null}
-        <div>
-          <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
-            Substituted expression
-          </dt>
-          <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+      <TimestampInterpretations
+        unixTimestampMs={result.unixTimestampMs}
+        utcTimestamp={result.utcTimestamp}
+      />
+
+      <details className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] px-4 py-3 dark:border-white/[0.07] dark:bg-[#202027]">
+        <summary className="cursor-pointer text-sm font-semibold text-[#514c60] dark:text-[#d7d4e2]">
+          Show calculation details
+        </summary>
+        <div className="mt-3 space-y-3 text-sm">
+          {isTimestampAnchor ? (
+            <p className="break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+              Anchor: samples {result.anchorSampleCount} · offset {String(result.anchorOffsetMs ?? 0)} ms · extra delay {formatTimestampMilliseconds(result.observedDelayMs ?? 0)} ms
+            </p>
+          ) : null}
+          <p className="break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
             {result.expression} = {formatTimestampMilliseconds(result.ntpTimestampMs)}
-          </dd>
+          </p>
         </div>
-      </dl>
+      </details>
 
       <button
         type="button"
@@ -221,24 +245,19 @@ function EpochConversionResultView({
         </div>
       </div>
 
-      <dl className="grid gap-3 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
-            UTC interpretation
-          </dt>
-          <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
-            {result.utcTimestamp}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
-            Substituted expression
-          </dt>
-          <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
-            {result.expression}
-          </dd>
-        </div>
-      </dl>
+      <TimestampInterpretations
+        unixTimestampMs={Number(result.unixTimestampMs)}
+        utcTimestamp={result.utcTimestamp}
+      />
+
+      <details className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] px-4 py-3 dark:border-white/[0.07] dark:bg-[#202027]">
+        <summary className="cursor-pointer text-sm font-semibold text-[#514c60] dark:text-[#d7d4e2]">
+          Show calculation details
+        </summary>
+        <p className="mt-3 break-all font-mono text-sm text-[#312c43] dark:text-[#dedbe7]">
+          {result.expression}
+        </p>
+      </details>
 
       <button
         type="button"
@@ -253,6 +272,134 @@ function EpochConversionResultView({
         {copyLabel}
       </button>
     </div>
+  );
+}
+
+function LatestFrameSection({
+  latestFrame,
+  copyLabel,
+  onCopy,
+}: {
+  latestFrame: LatestFrame | null;
+  copyLabel: string;
+  onCopy: () => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-[#ede9f8] bg-white p-6 shadow-sm dark:border-white/[0.06] dark:bg-[#18181e]">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.15em] text-violet-600 dark:text-violet-400">
+          2. Latest native frame
+        </p>
+        <h2 className="mt-1 text-lg font-semibold text-[#0f0e1a] dark:text-[#f1f0f6]">
+          Current timestamp result
+        </h2>
+      </div>
+
+      {!latestFrame ? (
+        <>
+          <p className="mt-5 rounded-xl border border-dashed border-[#dcd7e9] px-4 py-10 text-center text-sm text-[#898395] dark:border-white/[0.1] dark:text-[#918d9d]">
+            Start capture to see NTP, Unix, UTC, and Browser local time for the
+            newest native VideoFrame.
+          </p>
+          <details className="mt-4 rounded-xl border border-[#eeeaf6] bg-[#faf9ff] px-4 py-3 dark:border-white/[0.07] dark:bg-[#202027]">
+            <summary className="cursor-pointer text-sm font-semibold text-[#514c60] dark:text-[#d7d4e2]">
+              Show diagnostics
+            </summary>
+            <p className="mt-3 text-sm text-[#6e6a85] dark:text-[#a7a4b5]">
+              Native frame metadata and anchor details appear after capture starts.
+            </p>
+          </details>
+        </>
+      ) : (
+        <div className="mt-5">
+          <div className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] px-4 py-3 text-sm dark:border-white/[0.07] dark:bg-[#202027]">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[#7e788e] dark:text-[#9a96a9]">
+              Applied method
+            </span>
+            <p className="mt-1 font-semibold text-[#312c43] dark:text-[#dedbe7]">
+              {latestFrame.calculation.method === "capture-time"
+                ? "metadata.captureTime"
+                : "Local VideoFrame.timestamp anchor"}
+            </p>
+          </div>
+
+          <CalculationResult
+            result={latestFrame.calculation}
+            copyLabel={copyLabel}
+            onCopy={onCopy}
+          />
+
+          <details className="mt-5 rounded-xl border border-[#eeeaf6] bg-[#faf9ff] px-4 py-3 dark:border-white/[0.07] dark:bg-[#202027]">
+            <summary className="cursor-pointer text-sm font-semibold text-[#514c60] dark:text-[#d7d4e2]">
+              Show diagnostics
+            </summary>
+            <div className="mt-4 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  [
+                    "VideoFrame.timestamp (µs)",
+                    latestFrame.videoFrameTimestampUs,
+                  ],
+                  [
+                    "performance.timeOrigin (ms)",
+                    latestFrame.performanceTimeOriginMs,
+                  ],
+                  ["Observed wall projection (ms)", latestFrame.wallProjectionMs],
+                  [
+                    "metadata.captureTime (ms)",
+                    latestFrame.calculation.captureTimeMs ?? "Unavailable",
+                  ],
+                  [
+                    "Selected strategy",
+                    latestFrame.strategy === "prefer-capture-time"
+                      ? "Prefer metadata.captureTime"
+                      : "Use VideoFrame.timestamp anchor",
+                  ],
+                  [
+                    "Anchor samples",
+                    latestFrame.calculation.anchorSampleCount ?? "Not used",
+                  ],
+                  [
+                    "Observed extra delay (ms)",
+                    latestFrame.calculation.observedDelayMs ?? "Not used",
+                  ],
+                  [
+                    "Anchor reset",
+                    latestFrame.calculation.anchorWasReset ? "Yes" : "No",
+                  ],
+                ].map(([label, value]) => (
+                  <div
+                    key={String(label)}
+                    className="rounded-xl border border-[#eeeaf6] bg-white p-3 dark:border-white/[0.07] dark:bg-[#18181e]"
+                  >
+                    <p className="text-[11px] font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+                      {label}
+                    </p>
+                    <p className="mt-1 break-all font-mono text-sm text-[#211d32] dark:text-[#f1f0f6]">
+                      {String(value)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+                  Complete VideoFrame.metadata()
+                </p>
+                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-[#17151f] p-4 font-mono text-xs leading-5 text-[#c9f3db]">
+                  {JSON.stringify(latestFrame.metadata, null, 2)}
+                </pre>
+                {latestFrame.metadataError ? (
+                  <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                    metadata() failed; local timestamp anchor used: {latestFrame.metadataError}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -710,6 +857,12 @@ export default function NtpCaptureTimestampPage() {
         </section>
       </div>
 
+      <LatestFrameSection
+        latestFrame={latestFrame}
+        copyLabel={liveCopyLabel}
+        onCopy={() => void copyLiveResult()}
+      />
+
       <section className="rounded-2xl border border-[#ede9f8] bg-white p-6 shadow-sm dark:border-white/[0.06] dark:bg-[#18181e]">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-violet-50 p-2.5 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
@@ -717,7 +870,7 @@ export default function NtpCaptureTimestampPage() {
           </div>
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.15em] text-violet-600 dark:text-violet-400">
-              2. Calculate
+              3. Calculate
             </p>
             <h2 className="mt-1 text-lg font-semibold text-[#0f0e1a] dark:text-[#f1f0f6]">
               Manual NTP timestamp calculator
@@ -843,7 +996,11 @@ export default function NtpCaptureTimestampPage() {
           />
         ) : null}
 
-        <div className="mt-8 border-t border-[#eeeaf6] pt-7 dark:border-white/[0.07]">
+        <details className="mt-8 border-t border-[#eeeaf6] pt-7 dark:border-white/[0.07]">
+          <summary className="cursor-pointer text-sm font-semibold text-[#514c60] dark:text-[#d7d4e2]">
+            Epoch converter
+          </summary>
+          <div className="mt-5">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
               <ArrowLeftRight className="h-5 w-5" />
@@ -943,79 +1100,10 @@ export default function NtpCaptureTimestampPage() {
               onCopy={() => void copyEpochResult()}
             />
           ) : null}
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-[#ede9f8] bg-white p-6 shadow-sm dark:border-white/[0.06] dark:bg-[#18181e]">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.15em] text-violet-600 dark:text-violet-400">
-            3. Latest native frame
-          </p>
-          <h2 className="mt-1 text-lg font-semibold text-[#0f0e1a] dark:text-[#f1f0f6]">
-            Selected local-camera strategy
-          </h2>
-        </div>
-
-        {!latestFrame ? (
-          <p className="mt-5 rounded-xl border border-dashed border-[#dcd7e9] px-4 py-10 text-center text-sm text-[#898395] dark:border-white/[0.1] dark:text-[#918d9d]">
-            Start capture to inspect the newest native VideoFrame.
-          </p>
-        ) : (
-          <div className="mt-5">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                ["VideoFrame.timestamp (µs)", latestFrame.videoFrameTimestampUs],
-                ["performance.timeOrigin (ms)", latestFrame.performanceTimeOriginMs],
-                ["Observed wall projection (ms)", latestFrame.wallProjectionMs],
-                ["metadata.captureTime (ms)", latestFrame.calculation.captureTimeMs ?? "Unavailable"],
-                [
-                  "Selected strategy",
-                  latestFrame.strategy === "prefer-capture-time"
-                    ? "Prefer metadata.captureTime"
-                    : "Use VideoFrame.timestamp anchor",
-                ],
-                [
-                  "Applied method",
-                  latestFrame.calculation.method === "capture-time"
-                    ? "metadata.captureTime"
-                    : "Local timestamp anchor",
-                ],
-                [
-                  "Anchor samples",
-                  latestFrame.calculation.anchorSampleCount ?? "Not used",
-                ],
-                [
-                  "Observed extra delay (ms)",
-                  latestFrame.calculation.observedDelayMs ?? "Not used",
-                ],
-              ].map(([label, value]) => (
-                <div key={String(label)} className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] p-3 dark:border-white/[0.07] dark:bg-[#202027]">
-                  <p className="text-[11px] font-semibold text-[#7e788e] dark:text-[#9a96a9]">{label}</p>
-                  <p className="mt-1 break-all font-mono text-sm text-[#211d32] dark:text-[#f1f0f6]">{String(value)}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4">
-              <p className="text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">Complete VideoFrame.metadata()</p>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-[#17151f] p-4 font-mono text-xs leading-5 text-[#c9f3db]">
-                {JSON.stringify(latestFrame.metadata, null, 2)}
-              </pre>
-              {latestFrame.metadataError ? (
-                <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
-                  metadata() failed; local timestamp anchor used: {latestFrame.metadataError}
-                </p>
-              ) : null}
-            </div>
-
-            <CalculationResult
-              result={latestFrame.calculation}
-              copyLabel={liveCopyLabel}
-              onCopy={() => void copyLiveResult()}
-            />
           </div>
-        )}
+        </details>
       </section>
+
     </section>
   );
 }
