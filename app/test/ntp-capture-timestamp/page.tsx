@@ -15,19 +15,21 @@ import {
 import {
   EpochConversionDirection,
   EpochConversionResult,
+  FrameClockAnchor,
+  FrameTimestampStrategy,
   LiveFrameCalculationResult,
   NTP_UNIX_EPOCH_OFFSET_MS,
   NtpCalculationResult,
   calculateNtpFromCaptureTime,
   calculateNtpFromFrame,
-  calculateNtpFromVideoFrameTimestamp,
+  calculateNtpFromTimestampAnchor,
   convertEpochMilliseconds,
   formatTimestampMilliseconds,
   parseCalculatorValue,
 } from "@/lib/video-frame-ntp-calculator";
 
 type StatusTone = "neutral" | "success" | "warning" | "error";
-type CalculatorMode = "capture-time" | "video-frame-timestamp";
+type CalculatorMode = "capture-time" | "timestamp-anchor";
 type SerializableMetadata = Record<string, unknown>;
 
 type VideoFrameLike = {
@@ -45,6 +47,8 @@ type MediaStreamTrackProcessorConstructor = new (options: {
 type LatestFrame = {
   videoFrameTimestampUs: number;
   performanceTimeOriginMs: number;
+  wallProjectionMs: number;
+  strategy: FrameTimestampStrategy;
   metadata: SerializableMetadata;
   metadataError: string;
   calculation: LiveFrameCalculationResult;
@@ -102,22 +106,22 @@ function CalculationResult({
   copyLabel: string;
   onCopy: () => void;
 }) {
-  const isApproximation = result.confidence === "unverified-approximation";
+  const isTimestampAnchor = result.method === "timestamp-anchor";
 
   return (
     <div className="mt-5 space-y-4">
       <div
         className={`rounded-xl border px-4 py-3 text-sm leading-6 ${
-          isApproximation
+          isTimestampAnchor
             ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
             : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
         }`}
       >
         <strong>
-          {isApproximation ? "Unverified approximation" : "Preferred calculation"}
+          {isTimestampAnchor ? "Local wall-clock anchor" : "Preferred calculation"}
         </strong>
-        {isApproximation
-          ? ": VideoFrame.timestamp may not share performance.timeOrigin's clock origin. The value remains available for testing."
+        {isTimestampAnchor
+          ? ": VideoFrame.timestamp is mapped with a rolling minimum-delay anchor. This is a local wall-clock mapping, not a server-certified NTP clock."
           : ": metadata.captureTime is defined relative to performance.timeOrigin."}
       </div>
 
@@ -149,6 +153,16 @@ function CalculationResult({
             {result.utcTimestamp}
           </dd>
         </div>
+        {isTimestampAnchor ? (
+          <div>
+            <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+              Anchor diagnostics
+            </dt>
+            <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+              samples {result.anchorSampleCount} · offset {String(result.anchorOffsetMs ?? 0)} ms · extra delay {formatTimestampMilliseconds(result.observedDelayMs ?? 0)} ms
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
             Substituted expression
@@ -249,6 +263,7 @@ export default function NtpCaptureTimestampPage() {
     null,
   );
   const runningRef = useRef(false);
+  const anchorRef = useRef(new FrameClockAnchor());
 
   const [processorSupported, setProcessorSupported] = useState<boolean | null>(
     null,
@@ -261,6 +276,8 @@ export default function NtpCaptureTimestampPage() {
   const [latestFrame, setLatestFrame] = useState<LatestFrame | null>(null);
   const [captureError, setCaptureError] = useState("");
   const [liveCopyLabel, setLiveCopyLabel] = useState("Copy NTP timestamp");
+  const [timestampStrategy, setTimestampStrategy] =
+    useState<FrameTimestampStrategy>("prefer-capture-time");
 
   const [calculatorMode, setCalculatorMode] =
     useState<CalculatorMode>("capture-time");
@@ -271,6 +288,7 @@ export default function NtpCaptureTimestampPage() {
   const [manualFrameTimestamp, setManualFrameTimestamp] = useState(
     SAMPLE_VIDEO_FRAME_TIMESTAMP_US,
   );
+  const [manualWallProjection, setManualWallProjection] = useState("");
   const [manualResult, setManualResult] =
     useState<NtpCalculationResult | null>(null);
   const [manualError, setManualError] = useState("");
@@ -292,6 +310,7 @@ export default function NtpCaptureTimestampPage() {
 
   const stopCapture = useCallback((announce = true) => {
     runningRef.current = false;
+    anchorRef.current.reset();
 
     const reader = readerRef.current;
     readerRef.current = null;
@@ -316,6 +335,7 @@ export default function NtpCaptureTimestampPage() {
     async (
       track: MediaStreamTrack,
       Processor: MediaStreamTrackProcessorConstructor,
+      strategy: FrameTimestampStrategy,
     ) => {
       try {
         const processor = new Processor({ track });
@@ -327,6 +347,12 @@ export default function NtpCaptureTimestampPage() {
           if (done || !value) break;
 
           try {
+            const performanceTimeOriginMs = performance.timeOrigin;
+            const wallProjectionMs = performanceTimeOriginMs + performance.now();
+            const anchorObservation = anchorRef.current.observe(
+              value.timestamp,
+              wallProjectionMs,
+            );
             let rawMetadata: unknown = {};
             let metadataError = "";
             try {
@@ -335,16 +361,19 @@ export default function NtpCaptureTimestampPage() {
               metadataError = getErrorMessage(error);
             }
 
-            const performanceTimeOriginMs = performance.timeOrigin;
             const calculation = calculateNtpFromFrame({
               performanceTimeOriginMs,
               videoFrameTimestampUs: value.timestamp,
               metadata: rawMetadata,
+              strategy,
+              anchorObservation,
             });
 
             setLatestFrame({
               videoFrameTimestampUs: value.timestamp,
               performanceTimeOriginMs,
+              wallProjectionMs,
+              strategy,
               metadata: toSerializableMetadata(rawMetadata),
               metadataError,
               calculation,
@@ -398,6 +427,8 @@ export default function NtpCaptureTimestampPage() {
     }
 
     try {
+      anchorRef.current.reset();
+      setLatestFrame(null);
       setCaptureError("");
       setCaptureStatus({ text: "Requesting camera", tone: "neutral" });
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -417,17 +448,18 @@ export default function NtpCaptureTimestampPage() {
       runningRef.current = true;
       setRunning(true);
       setCaptureStatus({ text: "Capturing native VideoFrames", tone: "success" });
-      void readVideoFrames(track, Processor);
+      void readVideoFrames(track, Processor, timestampStrategy);
     } catch (error) {
       setCaptureError(`Camera access failed: ${getErrorMessage(error)}`);
       setCaptureStatus({ text: "Camera access failed", tone: "error" });
       stopCapture(false);
     }
-  }, [readVideoFrames, stopCapture]);
+  }, [readVideoFrames, stopCapture, timestampStrategy]);
 
   useEffect(() => {
     setProcessorSupported("MediaStreamTrackProcessor" in window);
     setManualTimeOrigin(String(performance.timeOrigin));
+    setManualWallProjection(String(performance.timeOrigin + performance.now()));
     return () => stopCapture(false);
   }, [stopCapture]);
 
@@ -438,26 +470,39 @@ export default function NtpCaptureTimestampPage() {
     setManualCopyLabel("Copy NTP timestamp");
   };
 
+  const changeTimestampStrategy = (strategy: FrameTimestampStrategy) => {
+    if (running) return;
+    anchorRef.current.reset();
+    setLatestFrame(null);
+    setTimestampStrategy(strategy);
+  };
+
   const calculateManualTimestamp = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-      const timeOrigin = parseCalculatorValue(
-        manualTimeOrigin,
-        "performance.timeOrigin",
-      );
       const result =
         calculatorMode === "capture-time"
           ? calculateNtpFromCaptureTime(
-              timeOrigin,
+              parseCalculatorValue(
+                manualTimeOrigin,
+                "performance.timeOrigin",
+              ),
               parseCalculatorValue(manualCaptureTime, "captureTime"),
             )
-          : calculateNtpFromVideoFrameTimestamp(
-              timeOrigin,
-              parseCalculatorValue(
+          : (() => {
+              const videoFrameTimestampUs = parseCalculatorValue(
                 manualFrameTimestamp,
                 "VideoFrame.timestamp",
-              ),
-            );
+              );
+              const wallProjectionMs = parseCalculatorValue(
+                manualWallProjection,
+                "observed wall projection",
+              );
+              return calculateNtpFromTimestampAnchor(
+                videoFrameTimestampUs,
+                wallProjectionMs - videoFrameTimestampUs / 1_000,
+              );
+            })();
 
       setManualResult(result);
       setManualError("");
@@ -536,8 +581,9 @@ export default function NtpCaptureTimestampPage() {
               NTP Capture Timestamp
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6e6a85] dark:text-[#a7a4b5]">
-              Prefer <code>VideoFrame.metadata().captureTime</code>; otherwise
-              calculate an explicitly marked approximation from <code>VideoFrame.timestamp</code>.
+              For a local camera, use <code>metadata.captureTime</code> when
+              available or map <code>VideoFrame.timestamp</code> to the local
+              wall clock with a rolling anchor.
             </p>
           </div>
           <span
@@ -570,8 +616,59 @@ export default function NtpCaptureTimestampPage() {
             </span>
           </div>
           <p className="mt-3 text-sm leading-6 text-[#6e6a85] dark:text-[#a7a4b5]">
-            The test requires <code>MediaStreamTrackProcessor</code>. No timer or display-time fallback is used because it would not expose the frame metadata under test.
+            The test requires <code>MediaStreamTrackProcessor</code>. Capture
+            mode records a native frame immediately and never assumes that its
+            timestamp has the same zero point as <code>performance.timeOrigin</code>.
           </p>
+          <fieldset className="mt-5">
+            <legend className="text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+              Local-camera timestamp strategy
+            </legend>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              {([
+                [
+                  "prefer-capture-time",
+                  "Prefer metadata.captureTime",
+                  "Use captureTime when available; otherwise use the local timestamp anchor.",
+                ],
+                [
+                  "timestamp-anchor",
+                  "Use VideoFrame.timestamp anchor",
+                  "Always map VideoFrame.timestamp with the local clock anchor.",
+                ],
+              ] as const).map(([strategy, title, description]) => (
+                <label
+                  key={strategy}
+                  className={`cursor-pointer rounded-xl border p-3 transition ${
+                    timestampStrategy === strategy
+                      ? "border-violet-400 bg-violet-50 dark:border-violet-600 dark:bg-violet-950/40"
+                      : "border-[#ded9ed] dark:border-white/[0.1]"
+                  } ${running ? "cursor-not-allowed opacity-60" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="timestamp-strategy"
+                    value={strategy}
+                    checked={timestampStrategy === strategy}
+                    onChange={() => changeTimestampStrategy(strategy)}
+                    disabled={running}
+                    className="mr-2 accent-violet-600"
+                  />
+                  <span className="text-sm font-semibold text-[#342f47] dark:text-[#e1deea]">
+                    {title}
+                  </span>
+                  <span className="mt-1 block pl-6 text-xs text-[#7e788e] dark:text-[#9a96a9]">
+                    {description}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-[#777186] dark:text-[#aaa6b5]">
+              Rolling 64-sample minimum: the smallest recent observed delay is
+              used as the local clock anchor. Stop capture before changing the
+              strategy.
+            </p>
+          </fieldset>
           <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="button"
@@ -636,7 +733,11 @@ export default function NtpCaptureTimestampPage() {
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
               {([
                 ["capture-time", "metadata.captureTime", "Preferred when available"],
-                ["video-frame-timestamp", "VideoFrame.timestamp", "Unverified approximation"],
+                [
+                  "timestamp-anchor",
+                  "VideoFrame.timestamp anchor",
+                  "One-sample local wall-clock mapping",
+                ],
               ] as const).map(([mode, title, description]) => (
                 <label
                   key={mode}
@@ -662,49 +763,63 @@ export default function NtpCaptureTimestampPage() {
           </fieldset>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <label className="grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
-              performance.timeOrigin (ms)
-              <input
-                value={manualTimeOrigin}
-                onChange={(event) => setManualTimeOrigin(event.target.value)}
-                inputMode="decimal"
-                placeholder="1786326156034.635"
-                className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
-              />
-            </label>
             {calculatorMode === "capture-time" ? (
-              <label className="grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
-                captureTime (ms)
-                <input
-                  value={manualCaptureTime}
-                  onChange={(event) => setManualCaptureTime(event.target.value)}
-                  inputMode="decimal"
-                  className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
-                />
-              </label>
+              <>
+                <label className="grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+                  performance.timeOrigin (ms)
+                  <input
+                    value={manualTimeOrigin}
+                    onChange={(event) => setManualTimeOrigin(event.target.value)}
+                    inputMode="decimal"
+                    placeholder="1786326156034.635"
+                    className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+                  captureTime (ms)
+                  <input
+                    value={manualCaptureTime}
+                    onChange={(event) => setManualCaptureTime(event.target.value)}
+                    inputMode="decimal"
+                    className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
+                  />
+                </label>
+              </>
             ) : (
-              <label className="grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
-                VideoFrame.timestamp (µs)
-                <input
-                  value={manualFrameTimestamp}
-                  onChange={(event) => setManualFrameTimestamp(event.target.value)}
-                  inputMode="decimal"
-                  className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
-                />
-              </label>
+              <>
+                <label className="grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+                  VideoFrame.timestamp (µs)
+                  <input
+                    value={manualFrameTimestamp}
+                    onChange={(event) => setManualFrameTimestamp(event.target.value)}
+                    inputMode="decimal"
+                    className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+                  Observed wall projection (ms)
+                  <input
+                    value={manualWallProjection}
+                    onChange={(event) => setManualWallProjection(event.target.value)}
+                    inputMode="decimal"
+                    placeholder="performance.timeOrigin + performance.now()"
+                    className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
+                  />
+                </label>
+              </>
             )}
           </div>
 
           <div className="mt-4 rounded-xl bg-[#f7f5fc] px-4 py-3 font-mono text-xs leading-5 text-[#514c60] dark:bg-[#202027] dark:text-[#c6c2d0]">
             {calculatorMode === "capture-time"
               ? `NTP ms = timeOrigin + captureTime + ${NTP_UNIX_EPOCH_OFFSET_MS}`
-              : `NTP ms ≈ timeOrigin + VideoFrame.timestamp / 1000 + ${NTP_UNIX_EPOCH_OFFSET_MS}`}
+              : `NTP ms = VideoFrame.timestamp / 1000 + (observed wall projection − VideoFrame.timestamp / 1000) + ${NTP_UNIX_EPOCH_OFFSET_MS}`}
           </div>
 
-          {calculatorMode === "video-frame-timestamp" ? (
+          {calculatorMode === "timestamp-anchor" ? (
             <div className="mt-3 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm leading-6 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               <CircleAlert className="mt-1 h-4 w-4 shrink-0" />
-              <span><strong>Unverified approximation.</strong> The formula still produces a copyable test value even if the timestamp uses a different clock origin.</span>
+              <span><strong>Local wall-clock mapping.</strong> This form uses one observed sample. Live capture uses a rolling 64-sample minimum to reduce scheduling and camera-pipeline delay.</span>
             </div>
           ) : null}
 
@@ -837,7 +952,7 @@ export default function NtpCaptureTimestampPage() {
             3. Latest native frame
           </p>
           <h2 className="mt-1 text-lg font-semibold text-[#0f0e1a] dark:text-[#f1f0f6]">
-            Automatic metadata selection
+            Selected local-camera strategy
           </h2>
         </div>
 
@@ -851,8 +966,28 @@ export default function NtpCaptureTimestampPage() {
               {[
                 ["VideoFrame.timestamp (µs)", latestFrame.videoFrameTimestampUs],
                 ["performance.timeOrigin (ms)", latestFrame.performanceTimeOriginMs],
+                ["Observed wall projection (ms)", latestFrame.wallProjectionMs],
                 ["metadata.captureTime (ms)", latestFrame.calculation.captureTimeMs ?? "Unavailable"],
-                ["Selected method", latestFrame.calculation.method === "capture-time" ? "metadata.captureTime" : "timeOrigin + VideoFrame.timestamp"],
+                [
+                  "Selected strategy",
+                  latestFrame.strategy === "prefer-capture-time"
+                    ? "Prefer metadata.captureTime"
+                    : "Use VideoFrame.timestamp anchor",
+                ],
+                [
+                  "Applied method",
+                  latestFrame.calculation.method === "capture-time"
+                    ? "metadata.captureTime"
+                    : "Local timestamp anchor",
+                ],
+                [
+                  "Anchor samples",
+                  latestFrame.calculation.anchorSampleCount ?? "Not used",
+                ],
+                [
+                  "Observed extra delay (ms)",
+                  latestFrame.calculation.observedDelayMs ?? "Not used",
+                ],
               ].map(([label, value]) => (
                 <div key={String(label)} className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] p-3 dark:border-white/[0.07] dark:bg-[#202027]">
                   <p className="text-[11px] font-semibold text-[#7e788e] dark:text-[#9a96a9]">{label}</p>
@@ -868,7 +1003,7 @@ export default function NtpCaptureTimestampPage() {
               </pre>
               {latestFrame.metadataError ? (
                 <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
-                  metadata() failed; timestamp fallback used: {latestFrame.metadataError}
+                  metadata() failed; local timestamp anchor used: {latestFrame.metadataError}
                 </p>
               ) : null}
             </div>
