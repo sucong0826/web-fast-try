@@ -3,21 +3,38 @@ const MAX_JAVASCRIPT_DATE_UNIX_EPOCH_MS = 8_640_000_000_000_000n;
 
 export type NtpCalculationMethod =
   | "capture-time"
-  | "video-frame-timestamp";
+  | "timestamp-anchor";
+
+export type FrameTimestampStrategy =
+  | "prefer-capture-time"
+  | "timestamp-anchor";
+
+export interface FrameClockAnchorObservation {
+  anchorOffsetMs: number;
+  sampleCount: number;
+  observedDelayMs: number;
+  wasReset: boolean;
+}
 
 export interface NtpCalculationResult {
   method: NtpCalculationMethod;
-  confidence: "preferred" | "unverified-approximation";
+  confidence: "preferred" | "local-clock-anchor";
   unixTimestampMs: number;
   ntpTimestampMs: number;
   utcTimestamp: string;
   expression: string;
+  anchorOffsetMs?: number;
+  anchorSampleCount?: number;
+  observedDelayMs?: number;
+  anchorWasReset?: boolean;
 }
 
 export interface LiveFrameCalculationInput {
   performanceTimeOriginMs: number;
   videoFrameTimestampUs: number;
   metadata?: unknown;
+  strategy?: FrameTimestampStrategy;
+  anchorObservation?: FrameClockAnchorObservation;
 }
 
 export interface LiveFrameCalculationResult extends NtpCalculationResult {
@@ -41,16 +58,61 @@ function assertNonNegativeFinite(value: number, label: string) {
   }
 }
 
+function assertFinite(value: number, label: string) {
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`${label} must be a finite number`);
+  }
+}
+
+const MAX_ANCHOR_SAMPLES = 64;
+const MAX_TIMESTAMP_GAP_US = 5_000_000;
+
+export class FrameClockAnchor {
+  private offsetsMs: number[] = [];
+  private previousTimestampUs: number | null = null;
+
+  reset() {
+    this.offsetsMs = [];
+    this.previousTimestampUs = null;
+  }
+
+  observe(
+    videoFrameTimestampUs: number,
+    wallProjectionMs: number,
+  ): FrameClockAnchorObservation {
+    assertNonNegativeFinite(videoFrameTimestampUs, "VideoFrame.timestamp");
+    assertNonNegativeFinite(wallProjectionMs, "wall projection");
+
+    const wasReset =
+      this.previousTimestampUs !== null &&
+      (videoFrameTimestampUs < this.previousTimestampUs ||
+        videoFrameTimestampUs - this.previousTimestampUs > MAX_TIMESTAMP_GAP_US);
+    if (wasReset) this.reset();
+
+    const sampleOffsetMs = wallProjectionMs - videoFrameTimestampUs / 1_000;
+    this.offsetsMs.push(sampleOffsetMs);
+    if (this.offsetsMs.length > MAX_ANCHOR_SAMPLES) {
+      this.offsetsMs.shift();
+    }
+    this.previousTimestampUs = videoFrameTimestampUs;
+
+    const anchorOffsetMs = Math.min(...this.offsetsMs);
+    return {
+      anchorOffsetMs,
+      sampleCount: this.offsetsMs.length,
+      observedDelayMs: sampleOffsetMs - anchorOffsetMs,
+      wasReset,
+    };
+  }
+}
+
 function buildResult(
   method: NtpCalculationMethod,
-  performanceTimeOriginMs: number,
-  relativeTimestampMs: number,
+  unixTimestampMs: number,
   expression: string,
+  anchorObservation?: FrameClockAnchorObservation,
 ): NtpCalculationResult {
-  assertNonNegativeFinite(performanceTimeOriginMs, "performance.timeOrigin");
-  assertNonNegativeFinite(relativeTimestampMs, "relative timestamp");
-
-  const unixTimestampMs = performanceTimeOriginMs + relativeTimestampMs;
+  assertNonNegativeFinite(unixTimestampMs, "Unix timestamp");
   const ntpTimestampMs = unixTimestampMs + NTP_UNIX_EPOCH_OFFSET_MS;
   const utcDate = new Date(unixTimestampMs);
 
@@ -61,11 +123,19 @@ function buildResult(
   return {
     method,
     confidence:
-      method === "capture-time" ? "preferred" : "unverified-approximation",
+      method === "capture-time" ? "preferred" : "local-clock-anchor",
     unixTimestampMs,
     ntpTimestampMs,
     utcTimestamp: utcDate.toISOString(),
     expression,
+    ...(anchorObservation
+      ? {
+          anchorOffsetMs: anchorObservation.anchorOffsetMs,
+          anchorSampleCount: anchorObservation.sampleCount,
+          observedDelayMs: anchorObservation.observedDelayMs,
+          anchorWasReset: anchorObservation.wasReset,
+        }
+      : {}),
   };
 }
 
@@ -73,25 +143,41 @@ export function calculateNtpFromCaptureTime(
   performanceTimeOriginMs: number,
   captureTimeMs: number,
 ): NtpCalculationResult {
+  assertNonNegativeFinite(performanceTimeOriginMs, "performance.timeOrigin");
+  assertNonNegativeFinite(captureTimeMs, "captureTime");
+  const unixTimestampMs = performanceTimeOriginMs + captureTimeMs;
   return buildResult(
     "capture-time",
-    performanceTimeOriginMs,
-    captureTimeMs,
+    unixTimestampMs,
     `${performanceTimeOriginMs} + ${captureTimeMs} + ${NTP_UNIX_EPOCH_OFFSET_MS}`,
   );
 }
 
-export function calculateNtpFromVideoFrameTimestamp(
-  performanceTimeOriginMs: number,
+export function calculateNtpFromTimestampAnchor(
   videoFrameTimestampUs: number,
+  anchorOffsetMs: number,
+  anchorSampleCount = 1,
+  observedDelayMs = 0,
+  anchorWasReset = false,
 ): NtpCalculationResult {
   assertNonNegativeFinite(videoFrameTimestampUs, "VideoFrame.timestamp");
+  assertFinite(anchorOffsetMs, "anchor offset");
+  if (!Number.isInteger(anchorSampleCount) || anchorSampleCount < 1) {
+    throw new RangeError("anchor sample count must be a positive integer");
+  }
+  assertNonNegativeFinite(observedDelayMs, "observed delay");
 
+  const unixTimestampMs = videoFrameTimestampUs / 1_000 + anchorOffsetMs;
   return buildResult(
-    "video-frame-timestamp",
-    performanceTimeOriginMs,
-    videoFrameTimestampUs / 1_000,
-    `${performanceTimeOriginMs} + ${videoFrameTimestampUs} / 1000 + ${NTP_UNIX_EPOCH_OFFSET_MS}`,
+    "timestamp-anchor",
+    unixTimestampMs,
+    `${videoFrameTimestampUs} / 1000 + (${anchorOffsetMs}) + ${NTP_UNIX_EPOCH_OFFSET_MS}`,
+    {
+      anchorOffsetMs,
+      sampleCount: anchorSampleCount,
+      observedDelayMs,
+      wasReset: anchorWasReset,
+    },
   );
 }
 
@@ -109,16 +195,27 @@ export function calculateNtpFromFrame(
       ? candidate
       : null;
 
+  const strategy = input.strategy ?? "prefer-capture-time";
   const result =
-    captureTimeMs === null
-      ? calculateNtpFromVideoFrameTimestamp(
-          input.performanceTimeOriginMs,
-          input.videoFrameTimestampUs,
-        )
-      : calculateNtpFromCaptureTime(
+    strategy === "prefer-capture-time" && captureTimeMs !== null
+      ? calculateNtpFromCaptureTime(
           input.performanceTimeOriginMs,
           captureTimeMs,
-        );
+        )
+      : (() => {
+          if (!input.anchorObservation) {
+            throw new RangeError(
+              "timestamp anchor observation is required when captureTime is not used",
+            );
+          }
+          return calculateNtpFromTimestampAnchor(
+            input.videoFrameTimestampUs,
+            input.anchorObservation.anchorOffsetMs,
+            input.anchorObservation.sampleCount,
+            input.anchorObservation.observedDelayMs,
+            input.anchorObservation.wasReset,
+          );
+        })();
 
   return { ...result, captureTimeMs };
 }

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  FrameClockAnchor,
   NTP_UNIX_EPOCH_OFFSET_MS,
   calculateNtpFromCaptureTime,
   calculateNtpFromFrame,
-  calculateNtpFromVideoFrameTimestamp,
+  calculateNtpFromTimestampAnchor,
   convertEpochMilliseconds,
   formatTimestampMilliseconds,
   parseCalculatorValue,
@@ -26,22 +27,110 @@ describe("VideoFrame NTP calculator", () => {
     });
   });
 
+  it("uses a recent-window minimum offset to anchor VideoFrame.timestamp", () => {
+    const anchor = new FrameClockAnchor();
+    const first = anchor.observe(2_505_600_000_000, 1_786_524_400_010);
+    const second = anchor.observe(2_505_600_033_333, 1_786_524_400_060);
+
+    expect(first).toMatchObject({
+      anchorOffsetMs: 1_784_018_800_010,
+      sampleCount: 1,
+      observedDelayMs: 0,
+      wasReset: false,
+    });
+    expect(second).toMatchObject({
+      anchorOffsetMs: 1_784_018_800_010,
+      sampleCount: 2,
+      observedDelayMs: 16.6669921875,
+      wasReset: false,
+    });
+  });
+
+  it("resets the anchor when a timestamp jumps forward by more than five seconds", () => {
+    const anchor = new FrameClockAnchor();
+    anchor.observe(1_000_000, 5_000);
+
+    expect(anchor.observe(7_000_001, 11_000)).toMatchObject({
+      sampleCount: 1,
+      wasReset: true,
+    });
+  });
+
+  it("resets the anchor when a timestamp goes backwards but not when it repeats", () => {
+    const anchor = new FrameClockAnchor();
+    anchor.observe(2_000_000, 6_000);
+
+    expect(anchor.observe(2_000_000, 6_010).wasReset).toBe(false);
+    expect(anchor.observe(1_999_999, 6_020)).toMatchObject({
+      sampleCount: 1,
+      wasReset: true,
+    });
+  });
+
+  it("keeps only the most recent 64 anchor samples", () => {
+    const anchor = new FrameClockAnchor();
+    for (let index = 0; index < 65; index += 1) {
+      anchor.observe(index * 1_000, 10_000 + index);
+    }
+
+    expect(anchor.observe(65_000, 10_065)).toMatchObject({
+      anchorOffsetMs: 10_000,
+      sampleCount: 64,
+    });
+  });
+
+  it("uses captureTime only with the preferred strategy", () => {
+    const anchor = new FrameClockAnchor();
+    const anchorObservation = anchor.observe(
+      106_574_320_365,
+      1_786_432_730_355,
+    );
+    const input = {
+      performanceTimeOriginMs: 1_786_326_156_034.635,
+      videoFrameTimestampUs: 106_574_320_365,
+      metadata: { captureTime: 106_574_320.365 },
+      anchorObservation,
+    };
+
+    expect(
+      calculateNtpFromFrame({
+        ...input,
+        strategy: "prefer-capture-time",
+      }).method,
+    ).toBe("capture-time");
+    expect(
+      calculateNtpFromFrame({ ...input, strategy: "timestamp-anchor" }),
+    ).toMatchObject({
+      method: "timestamp-anchor",
+      confidence: "local-clock-anchor",
+      unixTimestampMs: 1_786_432_730_355,
+      ntpTimestampMs: 3_995_421_530_355,
+      captureTimeMs: 106_574_320.365,
+      anchorSampleCount: 1,
+    });
+  });
+
   it.each([
     undefined,
     {},
     { captureTime: -1 },
     { captureTime: Number.NaN },
     { captureTime: "106574320.365" },
-  ])("falls back for unavailable or invalid captureTime: %o", (metadata) => {
+  ])("anchors unavailable or invalid captureTime: %o", (metadata) => {
+    const anchor = new FrameClockAnchor();
     const result = calculateNtpFromFrame({
       performanceTimeOriginMs: 1_786_326_156_034.635,
       videoFrameTimestampUs: 106_574_320_365,
       metadata,
+      anchorObservation: anchor.observe(
+        106_574_320_365,
+        1_786_432_730_355,
+      ),
     });
 
     expect(result).toMatchObject({
-      method: "video-frame-timestamp",
-      confidence: "unverified-approximation",
+      method: "timestamp-anchor",
+      confidence: "local-clock-anchor",
       captureTimeMs: null,
       unixTimestampMs: 1_786_432_730_355,
       ntpTimestampMs: 3_995_421_530_355,
@@ -55,10 +144,14 @@ describe("VideoFrame NTP calculator", () => {
     });
   });
 
-  it("converts VideoFrame timestamp microseconds to milliseconds", () => {
-    expect(calculateNtpFromVideoFrameTimestamp(1000.25, 20_500)).toMatchObject({
+  it("calculates NTP time from a VideoFrame timestamp and clock anchor", () => {
+    expect(calculateNtpFromTimestampAnchor(20_500, 1000.25, 3, 2.5)).toMatchObject({
+      method: "timestamp-anchor",
+      confidence: "local-clock-anchor",
       unixTimestampMs: 1020.75,
       ntpTimestampMs: NTP_UNIX_EPOCH_OFFSET_MS + 1020.75,
+      anchorSampleCount: 3,
+      observedDelayMs: 2.5,
     });
   });
 
