@@ -52,6 +52,16 @@ export interface EpochConversionResult {
   expression: string;
 }
 
+export interface LocalTimestampInterpretation {
+  timeZone: string;
+  display: string;
+}
+
+export interface LocalTimestampFormatOptions {
+  locales?: string | string[];
+  timeZone?: string;
+}
+
 function assertNonNegativeFinite(value: number, label: string) {
   if (!Number.isFinite(value) || value < 0) {
     throw new RangeError(`${label} must be a finite, non-negative number`);
@@ -233,6 +243,33 @@ export function parseCalculatorValue(value: string, label: string): number {
 export function formatTimestampMilliseconds(value: number): string {
   assertNonNegativeFinite(value, "timestamp");
   return String(value);
+}
+
+export function formatLocalTimestamp(
+  unixTimestampMs: number,
+  options: LocalTimestampFormatOptions = {},
+): LocalTimestampInterpretation {
+  assertNonNegativeFinite(unixTimestampMs, "Unix timestamp");
+  const date = new Date(unixTimestampMs);
+  if (Number.isNaN(date.getTime())) {
+    throw new RangeError("timestamp is outside the supported local date range");
+  }
+
+  const formatter = new Intl.DateTimeFormat(options.locales, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+    timeZoneName: "short",
+    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+  });
+  return {
+    timeZone: options.timeZone ?? formatter.resolvedOptions().timeZone,
+    display: formatter.format(date),
+  };
 }
 
 function parseDecimalMilliseconds(value: string, label: string) {

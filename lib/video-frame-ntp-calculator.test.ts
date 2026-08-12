@@ -6,6 +6,7 @@ import {
   calculateNtpFromFrame,
   calculateNtpFromTimestampAnchor,
   convertEpochMilliseconds,
+  formatLocalTimestamp,
   formatTimestampMilliseconds,
   parseCalculatorValue,
 } from "./video-frame-ntp-calculator";
@@ -168,6 +169,16 @@ describe("VideoFrame NTP calculator", () => {
     expect(formatTimestampMilliseconds(3_995_421_530_355.365)).toBe(
       "3995421530355.365",
     );
+  });
+
+  it("formats a Unix timestamp in a supplied browser time zone with milliseconds", () => {
+    const result = formatLocalTimestamp(1_786_525_630_036, {
+      locales: "en-GB",
+      timeZone: "Asia/Shanghai",
+    });
+
+    expect(result.timeZone).toBe("Asia/Shanghai");
+    expect(result.display).toMatch(/17:07:10\.036/);
   });
 });
 
