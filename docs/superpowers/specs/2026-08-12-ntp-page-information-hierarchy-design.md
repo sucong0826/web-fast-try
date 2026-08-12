@@ -19,8 +19,12 @@ Unix and NTP timestamps are epoch counts and do not have an intrinsic time zone.
 ```ts
 utc = new Date(unixTimestampMs).toISOString();
 local = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "medium",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
   fractionalSecondDigits: 3,
   timeZoneName: "short",
 }).format(new Date(unixTimestampMs));
