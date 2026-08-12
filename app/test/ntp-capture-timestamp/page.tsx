@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowLeftRight,
   Calculator,
   Camera,
   Check,
@@ -12,12 +13,15 @@ import {
   Square,
 } from "lucide-react";
 import {
+  EpochConversionDirection,
+  EpochConversionResult,
   LiveFrameCalculationResult,
   NTP_UNIX_EPOCH_OFFSET_MS,
   NtpCalculationResult,
   calculateNtpFromCaptureTime,
   calculateNtpFromFrame,
   calculateNtpFromVideoFrameTimestamp,
+  convertEpochMilliseconds,
   formatTimestampMilliseconds,
   parseCalculatorValue,
 } from "@/lib/video-frame-ntp-calculator";
@@ -171,6 +175,73 @@ function CalculationResult({
   );
 }
 
+function EpochConversionResultView({
+  result,
+  copyLabel,
+  onCopy,
+}: {
+  result: EpochConversionResult;
+  copyLabel: string;
+  onCopy: () => void;
+}) {
+  const isUnixToNtp = result.direction === "unix-to-ntp";
+
+  return (
+    <div className="mt-5 space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] p-4 dark:border-white/[0.07] dark:bg-[#202027]">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7e788e] dark:text-[#9a96a9]">
+            Source · {isUnixToNtp ? "Unix epoch ms" : "NTP epoch ms"}
+          </p>
+          <p className="mt-2 break-all font-mono text-sm text-[#211d32] dark:text-[#f1f0f6]">
+            {result.sourceTimestampMs}
+          </p>
+        </div>
+        <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4 dark:border-violet-900 dark:from-violet-950/50 dark:to-indigo-950/40">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+            Converted · {isUnixToNtp ? "NTP epoch ms" : "Unix epoch ms"}
+          </p>
+          <p className="mt-2 break-all font-mono text-lg font-bold text-violet-950 dark:text-violet-100">
+            {result.convertedTimestampMs}
+          </p>
+        </div>
+      </div>
+
+      <dl className="grid gap-3 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+            UTC interpretation
+          </dt>
+          <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+            {result.utcTimestamp}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+            Substituted expression
+          </dt>
+          <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+            {result.expression}
+          </dd>
+        </div>
+      </dl>
+
+      <button
+        type="button"
+        onClick={onCopy}
+        className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300"
+      >
+        {copyLabel.startsWith("Copied") ? (
+          <Check className="h-4 w-4" />
+        ) : (
+          <Copy className="h-4 w-4" />
+        )}
+        {copyLabel}
+      </button>
+    </div>
+  );
+}
+
 export default function NtpCaptureTimestampPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -204,6 +275,20 @@ export default function NtpCaptureTimestampPage() {
     useState<NtpCalculationResult | null>(null);
   const [manualError, setManualError] = useState("");
   const [manualCopyLabel, setManualCopyLabel] = useState("Copy NTP timestamp");
+  const [epochDirection, setEpochDirection] =
+    useState<EpochConversionDirection>("unix-to-ntp");
+  const [manualUnixTimestamp, setManualUnixTimestamp] = useState(
+    "1786432730355.365",
+  );
+  const [manualNtpTimestamp, setManualNtpTimestamp] = useState(
+    "3995421530355.365",
+  );
+  const [epochResult, setEpochResult] =
+    useState<EpochConversionResult | null>(null);
+  const [epochError, setEpochError] = useState("");
+  const [epochCopyLabel, setEpochCopyLabel] = useState(
+    "Copy converted timestamp",
+  );
 
   const stopCapture = useCallback((announce = true) => {
     runningRef.current = false;
@@ -402,6 +487,39 @@ export default function NtpCaptureTimestampPage() {
       setManualCopyLabel("Copied NTP timestamp");
     } catch (error) {
       setManualError(getErrorMessage(error));
+    }
+  };
+
+  const changeEpochDirection = (direction: EpochConversionDirection) => {
+    setEpochDirection(direction);
+    setEpochResult(null);
+    setEpochError("");
+    setEpochCopyLabel("Copy converted timestamp");
+  };
+
+  const convertEpochTimestamp = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      const input =
+        epochDirection === "unix-to-ntp"
+          ? manualUnixTimestamp
+          : manualNtpTimestamp;
+      setEpochResult(convertEpochMilliseconds(input, epochDirection));
+      setEpochError("");
+      setEpochCopyLabel("Copy converted timestamp");
+    } catch (error) {
+      setEpochResult(null);
+      setEpochError(getErrorMessage(error));
+    }
+  };
+
+  const copyEpochResult = async () => {
+    if (!epochResult) return;
+    try {
+      await copyText(epochResult.convertedTimestampMs);
+      setEpochCopyLabel("Copied converted timestamp");
+    } catch (error) {
+      setEpochError(getErrorMessage(error));
     }
   };
 
@@ -609,6 +727,108 @@ export default function NtpCaptureTimestampPage() {
             onCopy={() => void copyManualResult()}
           />
         ) : null}
+
+        <div className="mt-8 border-t border-[#eeeaf6] pt-7 dark:border-white/[0.07]">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+              <ArrowLeftRight className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-[#0f0e1a] dark:text-[#f1f0f6]">
+                Unix ↔ NTP epoch converter
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-[#777186] dark:text-[#aaa6b5]">
+                Decimal milliseconds only. NTP means milliseconds since 1900;
+                standard Q32.32 is not used here.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={convertEpochTimestamp} className="mt-5">
+            <fieldset>
+              <legend className="text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+                Conversion direction
+              </legend>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {([
+                  ["unix-to-ntp", "Unix → NTP", "Add the 1900/1970 epoch offset"],
+                  ["ntp-to-unix", "NTP → Unix", "Subtract the 1900/1970 epoch offset"],
+                ] as const).map(([direction, title, description]) => (
+                  <label
+                    key={direction}
+                    className={`cursor-pointer rounded-xl border p-3 transition ${
+                      epochDirection === direction
+                        ? "border-indigo-400 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-950/40"
+                        : "border-[#ded9ed] dark:border-white/[0.1]"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="epoch-direction"
+                      value={direction}
+                      checked={epochDirection === direction}
+                      onChange={() => changeEpochDirection(direction)}
+                      className="mr-2 accent-indigo-600"
+                    />
+                    <span className="text-sm font-semibold text-[#342f47] dark:text-[#e1deea]">
+                      {title}
+                    </span>
+                    <span className="mt-1 block pl-6 text-xs text-[#7e788e] dark:text-[#9a96a9]">
+                      {description}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="mt-4 grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+              {epochDirection === "unix-to-ntp"
+                ? "Unix timestamp (ms)"
+                : "NTP timestamp (ms)"}
+              <input
+                value={
+                  epochDirection === "unix-to-ntp"
+                    ? manualUnixTimestamp
+                    : manualNtpTimestamp
+                }
+                onChange={(event) =>
+                  epochDirection === "unix-to-ntp"
+                    ? setManualUnixTimestamp(event.target.value)
+                    : setManualNtpTimestamp(event.target.value)
+                }
+                inputMode="decimal"
+                className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
+              />
+            </label>
+
+            <div className="mt-4 rounded-xl bg-[#f7f5fc] px-4 py-3 font-mono text-xs leading-5 text-[#514c60] dark:bg-[#202027] dark:text-[#c6c2d0]">
+              {epochDirection === "unix-to-ntp"
+                ? `NTP ms = Unix ms + ${NTP_UNIX_EPOCH_OFFSET_MS}`
+                : `Unix ms = NTP ms - ${NTP_UNIX_EPOCH_OFFSET_MS}`}
+            </div>
+
+            {epochError ? (
+              <p className="mt-3 text-sm font-semibold text-rose-600 dark:text-rose-400">
+                {epochError}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-indigo-700 hover:to-blue-700"
+            >
+              <ArrowLeftRight className="h-4 w-4" /> Convert timestamp
+            </button>
+          </form>
+
+          {epochResult ? (
+            <EpochConversionResultView
+              result={epochResult}
+              copyLabel={epochCopyLabel}
+              onCopy={() => void copyEpochResult()}
+            />
+          ) : null}
+        </div>
       </section>
 
       <section className="rounded-2xl border border-[#ede9f8] bg-white p-6 shadow-sm dark:border-white/[0.06] dark:bg-[#18181e]">

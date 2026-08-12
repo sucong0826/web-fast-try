@@ -15,6 +15,11 @@ it("renders the simplified capture validator and manual calculator", () => {
   expect(page).toContain("2208988800000");
   expect(page).toContain("Unverified approximation");
   expect(page).toContain("106574320.365");
+  expect(page).toContain("Unix ↔ NTP epoch converter");
+  expect(page).toContain("Unix → NTP");
+  expect(page).toContain("NTP → Unix");
+  expect(page).toContain("Convert timestamp");
+  expect(page).toContain("1786432730355.365");
   expect(page).not.toContain("Manual server anchor");
   expect(page).not.toContain("Match tolerance");
   expect(page).not.toContain("Copy CSV");
