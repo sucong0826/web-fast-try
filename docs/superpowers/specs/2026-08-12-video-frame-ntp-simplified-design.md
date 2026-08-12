@@ -82,6 +82,35 @@ The capture-time branch uses a success treatment. The fallback branch uses a per
 
 The copy action copies the NTP epoch-millisecond decimal value only, matching the server representation used in the existing investigation. Standard NTP Q32.32 conversion is out of scope for this simplified page.
 
+## Manual Formula Calculator
+
+Section `2. Calculate` contains a manual NTP timestamp calculator in addition to the latest live-frame result. It lets an engineer reproduce the agreed formulas without starting the camera.
+
+The calculator has two explicitly selected modes:
+
+1. **`captureTime` mode**
+   - Inputs: `performance.timeOrigin` in milliseconds and `captureTime` in milliseconds.
+   - Formula: `NTP ms = timeOrigin + captureTime + 2_208_988_800_000`.
+   - This is labeled as the preferred calculation when capture metadata is available.
+2. **`VideoFrame.timestamp` mode**
+   - Inputs: `performance.timeOrigin` in milliseconds and `VideoFrame.timestamp` in microseconds.
+   - Formula: `NTP ms ≈ timeOrigin + VideoFrame.timestamp / 1000 + 2_208_988_800_000`.
+   - This always displays the unverified-approximation warning.
+
+Only the timestamp input relevant to the selected mode is visible. Switching modes clears the previous calculated result so a result cannot be mistaken for the newly selected formula. Input text is retained per mode for convenient comparison.
+
+The user explicitly starts evaluation with a `Calculate NTP timestamp` button. Valid input produces:
+
+- Unix epoch milliseconds before adding the NTP offset.
+- NTP epoch milliseconds as the primary result.
+- UTC interpretation of the Unix value.
+- A substituted calculation expression showing the supplied values, unit conversion, and epoch offset.
+- A copy button that copies only the NTP epoch-millisecond decimal value.
+
+Inputs accept finite, non-negative decimal values. Blank, negative, non-numeric, and non-finite values display an inline validation error and do not retain a stale result. Calculations preserve decimal millisecond precision supported by JavaScript numbers; the page does not round the primary result to a whole millisecond.
+
+The manual calculator is independent of live capture. Starting or stopping the camera does not overwrite its inputs or result, and manually entered values do not alter the latest captured-frame calculation.
+
 ## API Fallbacks
 
 If `MediaStreamTrackProcessor` is unavailable, the page reports that native `VideoFrame.timestamp` and `VideoFrame.metadata()` cannot be tested. It does not fabricate a `VideoFrame` value through `requestVideoFrameCallback` or a wall-clock timer because those paths cannot validate the agreed conversion policy.
@@ -103,6 +132,7 @@ Pure conversion helpers will be covered for:
 - Correct microsecond-to-millisecond conversion.
 - Correct addition of the NTP/Unix epoch offset.
 - Method and confidence labels.
+- Both manual calculator modes and their unit conversions.
+- Decimal inputs and invalid manual calculator inputs.
 
-The page test will verify the simplified controls, formulas, output labels, fallback warning, and removal of anchor/server-comparison UI. Before deployment, run the focused tests, full test suite, and production build. Then push `main` so the connected Vercel project deploys the commit and verify the production route.
-
+The page test will verify the simplified capture controls, calculator mode selector, manual inputs, formulas, output labels, fallback warning, and removal of anchor/server-comparison UI. Before deployment, run the focused tests, full test suite, and production build. Then push `main` so the connected Vercel project deploys the commit and verify the production route.
