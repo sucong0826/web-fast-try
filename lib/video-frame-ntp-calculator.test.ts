@@ -127,4 +127,23 @@ describe("Unix/NTP epoch converter", () => {
       convertEpochMilliseconds("2208988799999.999", "ntp-to-unix"),
     ).toThrow("before the supported Unix epoch");
   });
+
+  it("accepts the exact maximum JavaScript Date boundary", () => {
+    expect(
+      convertEpochMilliseconds("8640000000000000.000", "unix-to-ntp")
+        .unixTimestampMs,
+    ).toBe("8640000000000000.000");
+  });
+
+  it.each([
+    ["8640000000000000.1", "unix-to-ntp"],
+    ["8642208988800000.1", "ntp-to-unix"],
+  ] as const)(
+    "rejects an exact decimal beyond the JavaScript Date boundary: %s",
+    (value, direction) => {
+      expect(() => convertEpochMilliseconds(value, direction)).toThrow(
+        "outside the supported UTC date range",
+      );
+    },
+  );
 });

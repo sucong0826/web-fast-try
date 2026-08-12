@@ -1,4 +1,5 @@
 export const NTP_UNIX_EPOCH_OFFSET_MS = 2_208_988_800_000;
+const MAX_JAVASCRIPT_DATE_UNIX_EPOCH_MS = 8_640_000_000_000_000n;
 
 export type NtpCalculationMethod =
   | "capture-time"
@@ -183,6 +184,17 @@ export function convertEpochMilliseconds(
   );
   const unixTimestampMs =
     direction === "unix-to-ntp" ? source.normalized : convertedTimestampMs;
+  const unixWhole =
+    direction === "unix-to-ntp" ? source.whole : convertedWhole;
+  const exceedsDateRange =
+    unixWhole > MAX_JAVASCRIPT_DATE_UNIX_EPOCH_MS ||
+    (unixWhole === MAX_JAVASCRIPT_DATE_UNIX_EPOCH_MS &&
+      /[1-9]/.test(source.fraction));
+
+  if (exceedsDateRange) {
+    throw new RangeError("timestamp is outside the supported UTC date range");
+  }
+
   const numericUnixTimestampMs = Number(unixTimestampMs);
   const unixDate = new Date(numericUnixTimestampMs);
 
