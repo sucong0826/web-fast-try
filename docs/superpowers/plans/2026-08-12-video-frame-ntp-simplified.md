@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the existing four-strategy timestamp laboratory with a latest-frame validator and a two-mode manual calculator for NTP epoch milliseconds.
+**Goal:** Replace the existing four-strategy timestamp laboratory with a latest-frame validator, a two-mode VideoFrame calculator, and an exact Unix/NTP epoch-millisecond converter.
 
-**Architecture:** Put all timestamp selection, validation, and arithmetic in a new pure helper module so live frames and manually entered values use the same formulas. Rewrite the existing client page around one native `MediaStreamTrackProcessor` capture path, one latest-frame result, and one independent manual calculator; retain the route and catalog entry while removing anchors and server comparison state.
+**Architecture:** Put all timestamp selection, validation, and arithmetic in a pure helper module so live frames and manually entered values use the same formulas. The Unix/NTP converter uses decimal-string arithmetic so adding or subtracting the integer epoch offset does not introduce floating-point noise into fractional milliseconds. The client page contains one native `MediaStreamTrackProcessor` capture path and two independent manual tools; retain the route and catalog entry while removing anchors and server comparison state.
 
 **Tech Stack:** Next.js 14 App Router, React 18, TypeScript, Tailwind CSS, Vitest, WebCodecs `VideoFrame`, Media Capture APIs.
 
@@ -14,6 +14,8 @@
 - Otherwise calculate an unverified approximation from `performance.timeOrigin + VideoFrame.timestamp / 1000`.
 - Add exactly `2_208_988_800_000` milliseconds to convert Unix epoch milliseconds to NTP epoch milliseconds.
 - The manual calculator supports explicit `captureTime` and `VideoFrame.timestamp` modes and never auto-detects the unit.
+- The epoch converter supports explicit Unix → NTP and NTP → Unix directions in decimal milliseconds only.
+- Preserve the converter input's fractional millisecond digits exactly; do not use floating-point arithmetic for its primary converted value.
 - Copy actions copy only the decimal NTP epoch-millisecond value.
 - Do not expose the old anchor, server matching, Q32.32, history table, or CSV interface.
 - If `MediaStreamTrackProcessor` is unavailable, report unsupported instead of fabricating frame values.
@@ -420,3 +422,226 @@ Expected: the push succeeds and updates `origin/main` to the local `main` commit
 
 Use the deployment URL returned by the connected Vercel/GitHub deployment, open `/test/ntp-capture-timestamp`, and verify the page returns successfully and shows `Calculate NTP timestamp`, both calculator modes, and no manual-anchor controls.
 
+### Task 4: Unix/NTP Epoch-Millisecond Converter
+
+**Files:**
+- Modify: `lib/video-frame-ntp-calculator.ts`
+- Modify: `lib/video-frame-ntp-calculator.test.ts`
+- Modify: `app/test/ntp-capture-timestamp/page.tsx`
+- Modify: `app/test/ntp-capture-timestamp/page.test.ts`
+
+**Interfaces:**
+- Consumes: a decimal-millisecond input string and explicit `EpochConversionDirection`.
+- Produces: `convertEpochMilliseconds(value: string, direction: EpochConversionDirection): EpochConversionResult`.
+- Preserves: the exact fractional digits supplied by the user in `sourceTimestampMs` and `convertedTimestampMs`.
+- Produces: an independent page card with its own direction, two retained input strings, result, error, and copy feedback.
+
+- [ ] **Step 1: Add failing unit tests for both conversion directions and validation**
+
+Append these imports and tests to `lib/video-frame-ntp-calculator.test.ts`:
+
+```ts
+import { convertEpochMilliseconds } from "./video-frame-ntp-calculator";
+
+describe("Unix/NTP epoch converter", () => {
+  it("adds the epoch offset without losing fractional millisecond digits", () => {
+    expect(
+      convertEpochMilliseconds("1786432730355.365", "unix-to-ntp"),
+    ).toMatchObject({
+      direction: "unix-to-ntp",
+      sourceTimestampMs: "1786432730355.365",
+      convertedTimestampMs: "3995421530355.365",
+      unixTimestampMs: "1786432730355.365",
+      utcTimestamp: "2026-08-11T07:18:50.355Z",
+      expression:
+        "1786432730355.365 + 2208988800000 = 3995421530355.365",
+    });
+  });
+
+  it("subtracts the epoch offset without floating-point noise", () => {
+    expect(
+      convertEpochMilliseconds("3995421530355.365", "ntp-to-unix"),
+    ).toMatchObject({
+      direction: "ntp-to-unix",
+      sourceTimestampMs: "3995421530355.365",
+      convertedTimestampMs: "1786432730355.365",
+      unixTimestampMs: "1786432730355.365",
+      expression:
+        "3995421530355.365 - 2208988800000 = 1786432730355.365",
+    });
+  });
+
+  it("preserves trailing fractional zeros", () => {
+    expect(
+      convertEpochMilliseconds("1.2300", "unix-to-ntp").convertedTimestampMs,
+    ).toBe("2208988800001.2300");
+  });
+
+  it.each(["", "-1", ".5", "NaN", "Infinity", "not-a-time"])(
+    "rejects a malformed epoch value: %s",
+    (value) => {
+      expect(() => convertEpochMilliseconds(value, "unix-to-ntp")).toThrow(
+        RangeError,
+      );
+    },
+  );
+
+  it("rejects an NTP value before the supported Unix epoch", () => {
+    expect(() =>
+      convertEpochMilliseconds("2208988799999.999", "ntp-to-unix"),
+    ).toThrow("before the supported Unix epoch");
+  });
+});
+```
+
+- [ ] **Step 2: Run the helper test and verify the new API is absent**
+
+Run: `npm test -- lib/video-frame-ntp-calculator.test.ts`
+
+Expected: FAIL because `convertEpochMilliseconds` is not exported.
+
+- [ ] **Step 3: Implement exact decimal-string epoch conversion**
+
+Add to `lib/video-frame-ntp-calculator.ts`:
+
+```ts
+export type EpochConversionDirection = "unix-to-ntp" | "ntp-to-unix";
+
+export interface EpochConversionResult {
+  direction: EpochConversionDirection;
+  sourceTimestampMs: string;
+  convertedTimestampMs: string;
+  unixTimestampMs: string;
+  utcTimestamp: string;
+  expression: string;
+}
+
+function parseDecimalMilliseconds(value: string, label: string) {
+  const trimmed = value.trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(trimmed);
+  if (!match) {
+    throw new RangeError(`${label} must be a non-negative decimal millisecond value`);
+  }
+  const whole = BigInt(match[1]);
+  const fraction = match[2] ?? "";
+  const normalizedWhole = whole.toString();
+  return {
+    whole,
+    fraction,
+    normalized: fraction ? `${normalizedWhole}.${fraction}` : normalizedWhole,
+  };
+}
+
+function joinDecimalMilliseconds(whole: bigint, fraction: string) {
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+export function convertEpochMilliseconds(
+  value: string,
+  direction: EpochConversionDirection,
+): EpochConversionResult {
+  const source = parseDecimalMilliseconds(value, "timestamp");
+  const offset = BigInt(NTP_UNIX_EPOCH_OFFSET_MS);
+  if (direction === "ntp-to-unix" && source.whole < offset) {
+    throw new RangeError("NTP timestamp is before the supported Unix epoch");
+  }
+  const convertedWhole =
+    direction === "unix-to-ntp"
+      ? source.whole + offset
+      : source.whole - offset;
+  const convertedTimestampMs = joinDecimalMilliseconds(
+    convertedWhole,
+    source.fraction,
+  );
+  const unixTimestampMs =
+    direction === "unix-to-ntp" ? source.normalized : convertedTimestampMs;
+  const unixDate = new Date(Number(unixTimestampMs));
+  if (!Number.isFinite(Number(unixTimestampMs)) || Number.isNaN(unixDate.getTime())) {
+    throw new RangeError("timestamp is outside the supported UTC date range");
+  }
+  const operator = direction === "unix-to-ntp" ? "+" : "-";
+  return {
+    direction,
+    sourceTimestampMs: source.normalized,
+    convertedTimestampMs,
+    unixTimestampMs,
+    utcTimestamp: unixDate.toISOString(),
+    expression: `${source.normalized} ${operator} ${NTP_UNIX_EPOCH_OFFSET_MS} = ${convertedTimestampMs}`,
+  };
+}
+```
+
+- [ ] **Step 4: Run the helper test and verify all calculator tests pass**
+
+Run: `npm test -- lib/video-frame-ntp-calculator.test.ts`
+
+Expected: PASS, including exact `.365` and `.2300` output assertions.
+
+- [ ] **Step 5: Extend the page test with the second calculator contract**
+
+Add these assertions to `app/test/ntp-capture-timestamp/page.test.ts`:
+
+```ts
+expect(page).toContain("Unix ↔ NTP epoch converter");
+expect(page).toContain("Unix → NTP");
+expect(page).toContain("NTP → Unix");
+expect(page).toContain("Convert timestamp");
+expect(page).toContain("1786432730355.365");
+```
+
+- [ ] **Step 6: Run the page test and verify the converter UI is absent**
+
+Run: `npm test -- app/test/ntp-capture-timestamp/page.test.ts`
+
+Expected: FAIL because the page does not yet render `Unix ↔ NTP epoch converter`.
+
+- [ ] **Step 7: Add the independent Unix/NTP converter card**
+
+Import `EpochConversionDirection`, `EpochConversionResult`, and `convertEpochMilliseconds`. Add independent state:
+
+```ts
+const [epochDirection, setEpochDirection] =
+  useState<EpochConversionDirection>("unix-to-ntp");
+const [manualUnixTimestamp, setManualUnixTimestamp] =
+  useState("1786432730355.365");
+const [manualNtpTimestamp, setManualNtpTimestamp] =
+  useState("3995421530355.365");
+const [epochResult, setEpochResult] = useState<EpochConversionResult | null>(null);
+const [epochError, setEpochError] = useState("");
+const [epochCopyLabel, setEpochCopyLabel] = useState("Copy converted timestamp");
+```
+
+Render a second card within section `2. Calculate` after the VideoFrame calculator. It must render two explicit direction radios, only the selected direction's input, the exact formula, `Convert timestamp`, validation error, source value, emphasized converted value, UTC, substituted expression, and a copy button. Direction changes clear `epochResult`, `epochError`, and copy feedback while retaining both input strings. Submit calls:
+
+```ts
+const input = epochDirection === "unix-to-ntp"
+  ? manualUnixTimestamp
+  : manualNtpTimestamp;
+setEpochResult(convertEpochMilliseconds(input, epochDirection));
+```
+
+Copy `epochResult.convertedTimestampMs` only.
+
+- [ ] **Step 8: Run focused tests, full tests, and production build**
+
+Run: `npm test -- lib/video-frame-ntp-calculator.test.ts app/test/ntp-capture-timestamp/page.test.ts`
+
+Expected: focused tests pass.
+
+Run: `npm test`
+
+Expected: all test files pass.
+
+Run: `npm run build`
+
+Expected: production build exits `0` and includes `/test/ntp-capture-timestamp`.
+
+- [ ] **Step 9: Commit and deploy the converter**
+
+```bash
+git add lib/video-frame-ntp-calculator.ts lib/video-frame-ntp-calculator.test.ts app/test/ntp-capture-timestamp/page.tsx app/test/ntp-capture-timestamp/page.test.ts
+git commit -m "feat: add Unix NTP epoch converter"
+git push origin main
+```
+
+Verify the production route shows `Unix ↔ NTP epoch converter` and that the sample converts exactly between `1786432730355.365` and `3995421530355.365`.
