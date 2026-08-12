@@ -16,6 +16,8 @@ describe("testPages", () => {
     expect(testPages).toContainEqual(
       expect.objectContaining({
         id: "ntp-capture-timestamp",
+        description:
+          "Calculate NTP timestamps from VideoFrame metadata or timestamp",
         path: "/test/ntp-capture-timestamp",
         category: "Debug",
       }),

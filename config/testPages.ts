@@ -83,7 +83,7 @@ export const testPages: TestPage[] = [
   {
     id: "ntp-capture-timestamp",
     title: "NTP Capture Timestamp",
-    description: "Capture camera timestamps and compare Q32.32 NTP values",
+    description: "Calculate NTP timestamps from VideoFrame metadata or timestamp",
     icon: "Timer",
     path: "/test/ntp-capture-timestamp",
     category: "Debug"
