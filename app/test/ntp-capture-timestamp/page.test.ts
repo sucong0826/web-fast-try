@@ -20,6 +20,10 @@ it("prioritizes latest frames and collapses secondary details", () => {
   expect(page).toContain("Browser local time");
   expect(page).toContain("Show diagnostics");
   expect(page).toContain("Epoch converter");
+  expect(page).toContain("NTP Q32.32 → Unix timestamp");
+  expect(page).toContain("NTP Q32.32 decimal value");
+  expect(page).toContain("Era 0");
+  expect(page).toContain("17160596469120441998");
   expect(page).toContain("Calculate NTP timestamp");
   expect(page).toContain("2208988800000");
   expect(page).toContain("local wall-clock mapping");

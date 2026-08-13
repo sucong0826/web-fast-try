@@ -20,10 +20,12 @@ import {
   LiveFrameCalculationResult,
   NTP_UNIX_EPOCH_OFFSET_MS,
   NtpCalculationResult,
+  NtpQ32_32ConversionResult,
   calculateNtpFromCaptureTime,
   calculateNtpFromFrame,
   calculateNtpFromTimestampAnchor,
   convertEpochMilliseconds,
+  convertNtpQ32_32ToUnix,
   formatLocalTimestamp,
   formatTimestampMilliseconds,
   parseCalculatorValue,
@@ -275,6 +277,89 @@ function EpochConversionResultView({
   );
 }
 
+function Q32_32ConversionResultView({
+  result,
+  copyLabel,
+  onCopy,
+}: {
+  result: NtpQ32_32ConversionResult;
+  copyLabel: string;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="mt-5 space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4 dark:border-violet-900 dark:from-violet-950/50 dark:to-indigo-950/40">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+            Unix timestamp (seconds)
+          </p>
+          <p className="mt-2 break-all font-mono text-lg font-bold text-violet-950 dark:text-violet-100">
+            {result.unixTimestampSeconds}
+          </p>
+        </div>
+        <div className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] p-4 dark:border-white/[0.07] dark:bg-[#202027]">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7e788e] dark:text-[#9a96a9]">
+            Unix timestamp (milliseconds)
+          </p>
+          <p className="mt-2 break-all font-mono text-sm text-[#211d32] dark:text-[#f1f0f6]">
+            {result.unixTimestampMilliseconds}
+          </p>
+        </div>
+      </div>
+
+      <TimestampInterpretations
+        unixTimestampMs={Number(result.unixMillisecondsForDate)}
+        utcTimestamp={result.utcTimestamp}
+      />
+
+      <details className="rounded-xl border border-[#eeeaf6] bg-[#faf9ff] px-4 py-3 dark:border-white/[0.07] dark:bg-[#202027]">
+        <summary className="cursor-pointer text-sm font-semibold text-[#514c60] dark:text-[#d7d4e2]">
+          Show Q32.32 fields
+        </summary>
+        <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+              NTP seconds
+            </dt>
+            <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+              {result.ntpSeconds}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+              NTP fraction / 2³²
+            </dt>
+            <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+              {result.ntpFraction} / 4294967296
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs font-semibold text-[#7e788e] dark:text-[#9a96a9]">
+              Substituted expression
+            </dt>
+            <dd className="mt-1 break-all font-mono text-[#312c43] dark:text-[#dedbe7]">
+              {result.expression}
+            </dd>
+          </div>
+        </dl>
+      </details>
+
+      <button
+        type="button"
+        onClick={onCopy}
+        className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300"
+      >
+        {copyLabel.startsWith("Copied") ? (
+          <Check className="h-4 w-4" />
+        ) : (
+          <Copy className="h-4 w-4" />
+        )}
+        {copyLabel}
+      </button>
+    </div>
+  );
+}
+
 function LatestFrameSection({
   latestFrame,
   copyLabel,
@@ -453,6 +538,15 @@ export default function NtpCaptureTimestampPage() {
   const [epochError, setEpochError] = useState("");
   const [epochCopyLabel, setEpochCopyLabel] = useState(
     "Copy converted timestamp",
+  );
+  const [manualQ32_32, setManualQ32_32] = useState(
+    "17160596469120441998",
+  );
+  const [q32_32Result, setQ32_32Result] =
+    useState<NtpQ32_32ConversionResult | null>(null);
+  const [q32_32Error, setQ32_32Error] = useState("");
+  const [q32_32CopyLabel, setQ32_32CopyLabel] = useState(
+    "Copy Unix timestamp",
   );
 
   const stopCapture = useCallback((announce = true) => {
@@ -712,6 +806,28 @@ export default function NtpCaptureTimestampPage() {
       setEpochCopyLabel("Copied converted timestamp");
     } catch (error) {
       setEpochError(getErrorMessage(error));
+    }
+  };
+
+  const convertQ32_32Timestamp = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      setQ32_32Result(convertNtpQ32_32ToUnix(manualQ32_32));
+      setQ32_32Error("");
+      setQ32_32CopyLabel("Copy Unix timestamp");
+    } catch (error) {
+      setQ32_32Result(null);
+      setQ32_32Error(getErrorMessage(error));
+    }
+  };
+
+  const copyQ32_32Result = async () => {
+    if (!q32_32Result) return;
+    try {
+      await copyText(q32_32Result.unixTimestampSeconds);
+      setQ32_32CopyLabel("Copied Unix timestamp");
+    } catch (error) {
+      setQ32_32Error(getErrorMessage(error));
     }
   };
 
@@ -1100,6 +1216,60 @@ export default function NtpCaptureTimestampPage() {
               onCopy={() => void copyEpochResult()}
             />
           ) : null}
+
+          <div className="mt-8 border-t border-[#eeeaf6] pt-7 dark:border-white/[0.07]">
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl bg-violet-50 p-2.5 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+                <ArrowLeftRight className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-[#0f0e1a] dark:text-[#f1f0f6]">
+                  NTP Q32.32 → Unix timestamp
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-[#777186] dark:text-[#aaa6b5]">
+                  Enter the complete unsigned 64-bit Q32.32 value as a decimal
+                  integer. Era 0 only: 1970 through the 2036 NTP rollover.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={convertQ32_32Timestamp} className="mt-5">
+              <label className="grid gap-1.5 text-xs font-semibold text-[#625d75] dark:text-[#b3afc1]">
+                NTP Q32.32 decimal value
+                <input
+                  value={manualQ32_32}
+                  onChange={(event) => setManualQ32_32(event.target.value)}
+                  inputMode="numeric"
+                  className="rounded-xl border border-[#ded9ed] bg-[#faf9ff] px-3 py-2.5 font-mono text-sm text-[#1d1a2b] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-white/[0.1] dark:bg-[#202027] dark:text-[#f1f0f6]"
+                />
+              </label>
+
+              <div className="mt-4 rounded-xl bg-[#f7f5fc] px-4 py-3 font-mono text-xs leading-5 text-[#514c60] dark:bg-[#202027] dark:text-[#c6c2d0]">
+                Unix seconds = (NTP seconds − 2208988800) + NTP fraction / 2³²
+              </div>
+
+              {q32_32Error ? (
+                <p className="mt-3 text-sm font-semibold text-rose-600 dark:text-rose-400">
+                  {q32_32Error}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-violet-700 hover:to-indigo-700"
+              >
+                <ArrowLeftRight className="h-4 w-4" /> Convert Q32.32 timestamp
+              </button>
+            </form>
+
+            {q32_32Result ? (
+              <Q32_32ConversionResultView
+                result={q32_32Result}
+                copyLabel={q32_32CopyLabel}
+                onCopy={() => void copyQ32_32Result()}
+              />
+            ) : null}
+          </div>
           </div>
         </details>
       </section>
