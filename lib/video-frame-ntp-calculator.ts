@@ -52,6 +52,17 @@ export interface EpochConversionResult {
   expression: string;
 }
 
+export interface NtpQ32_32ConversionResult {
+  sourceQ32_32: string;
+  ntpSeconds: string;
+  ntpFraction: string;
+  unixTimestampSeconds: string;
+  unixTimestampMilliseconds: string;
+  unixMillisecondsForDate: string;
+  utcTimestamp: string;
+  expression: string;
+}
+
 export interface LocalTimestampInterpretation {
   timeZone: string;
   display: string;
@@ -76,6 +87,11 @@ function assertFinite(value: number, label: string) {
 
 const MAX_ANCHOR_SAMPLES = 64;
 const MAX_TIMESTAMP_GAP_US = 5_000_000;
+const NTP_Q32_32_FRACTION_SCALE = 1n << 32n;
+const NTP_Q32_32_FRACTION_MASK = NTP_Q32_32_FRACTION_SCALE - 1n;
+const NTP_UNIX_EPOCH_OFFSET_SECONDS = 2_208_988_800n;
+const MAX_NTP_Q32_32 = (1n << 64n) - 1n;
+const Q32_32_DECIMAL_PLACES = 12n;
 
 export class FrameClockAnchor {
   private offsetsMs: number[] = [];
@@ -295,6 +311,80 @@ function parseDecimalMilliseconds(value: string, label: string) {
 
 function joinDecimalMilliseconds(whole: bigint, fraction: string) {
   return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+function formatFixedFraction(
+  numerator: bigint,
+  denominator: bigint,
+  decimalPlaces = Q32_32_DECIMAL_PLACES,
+) {
+  const scale = 10n ** decimalPlaces;
+  return ((numerator * scale) / denominator)
+    .toString()
+    .padStart(Number(decimalPlaces), "0");
+}
+
+function parseNtpQ32_32(value: string) {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new RangeError("NTP Q32.32 value must be an unsigned decimal integer");
+  }
+
+  const parsed = BigInt(trimmed);
+  if (parsed > MAX_NTP_Q32_32) {
+    throw new RangeError("NTP Q32.32 value exceeds the unsigned 64-bit range");
+  }
+  return parsed;
+}
+
+export function convertNtpQ32_32ToUnix(
+  value: string,
+): NtpQ32_32ConversionResult {
+  const packedQ32_32 = parseNtpQ32_32(value);
+  const ntpSeconds = packedQ32_32 >> 32n;
+  const ntpFraction = packedQ32_32 & NTP_Q32_32_FRACTION_MASK;
+  if (ntpSeconds < NTP_UNIX_EPOCH_OFFSET_SECONDS) {
+    throw new RangeError("NTP timestamp is before the supported Unix epoch");
+  }
+
+  const unixSeconds = ntpSeconds - NTP_UNIX_EPOCH_OFFSET_SECONDS;
+  const fractionalMillisecondsNumerator = ntpFraction * 1_000n;
+  const wholeFractionalMilliseconds =
+    fractionalMillisecondsNumerator / NTP_Q32_32_FRACTION_SCALE;
+  const remainingFractionalMilliseconds =
+    fractionalMillisecondsNumerator % NTP_Q32_32_FRACTION_SCALE;
+  const unixMillisecondsForDate =
+    unixSeconds * 1_000n + wholeFractionalMilliseconds;
+
+  if (unixMillisecondsForDate > MAX_JAVASCRIPT_DATE_UNIX_EPOCH_MS) {
+    throw new RangeError("timestamp is outside the supported UTC date range");
+  }
+
+  const utcDate = new Date(Number(unixMillisecondsForDate));
+  if (Number.isNaN(utcDate.getTime())) {
+    throw new RangeError("timestamp is outside the supported UTC date range");
+  }
+
+  const normalizedSource = packedQ32_32.toString();
+  const unixSecondsFraction = formatFixedFraction(
+    ntpFraction,
+    NTP_Q32_32_FRACTION_SCALE,
+  );
+  const unixMillisecondsFraction = formatFixedFraction(
+    remainingFractionalMilliseconds,
+    NTP_Q32_32_FRACTION_SCALE,
+  );
+
+  return {
+    sourceQ32_32: normalizedSource,
+    ntpSeconds: ntpSeconds.toString(),
+    ntpFraction: ntpFraction.toString(),
+    unixTimestampSeconds: `${unixSeconds}.${unixSecondsFraction}`,
+    unixTimestampMilliseconds: `${unixMillisecondsForDate}.${unixMillisecondsFraction}`,
+    unixMillisecondsForDate: unixMillisecondsForDate.toString(),
+    utcTimestamp: utcDate.toISOString(),
+    expression: `(${ntpSeconds} - ${NTP_UNIX_EPOCH_OFFSET_SECONDS}) + ${ntpFraction} / ${NTP_Q32_32_FRACTION_SCALE}`,
+  };
 }
 
 export function convertEpochMilliseconds(

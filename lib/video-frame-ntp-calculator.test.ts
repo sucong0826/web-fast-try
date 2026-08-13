@@ -6,6 +6,7 @@ import {
   calculateNtpFromFrame,
   calculateNtpFromTimestampAnchor,
   convertEpochMilliseconds,
+  convertNtpQ32_32ToUnix,
   formatLocalTimestamp,
   formatTimestampMilliseconds,
   parseCalculatorValue,
@@ -250,4 +251,52 @@ describe("Unix/NTP epoch converter", () => {
       );
     },
   );
+});
+
+describe("NTP Q32.32 converter", () => {
+  it("converts the supplied packed Q32.32 decimal value without precision loss", () => {
+    expect(convertNtpQ32_32ToUnix("17160596469120441998")).toMatchObject({
+      sourceQ32_32: "17160596469120441998",
+      ntpSeconds: "3995512721",
+      ntpFraction: "1673469582",
+      unixTimestampSeconds: "1786523921.389634999912",
+      unixTimestampMilliseconds: "1786523921389.634999912232",
+      unixMillisecondsForDate: "1786523921389",
+      utcTimestamp: "2026-08-12T08:38:41.389Z",
+    });
+  });
+
+  it("accepts the exact Unix epoch boundary", () => {
+    expect(convertNtpQ32_32ToUnix("9487534653230284800")).toMatchObject({
+      ntpSeconds: "2208988800",
+      ntpFraction: "0",
+      unixTimestampSeconds: "0.000000000000",
+      unixTimestampMilliseconds: "0.000000000000",
+      utcTimestamp: "1970-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("accepts the maximum unsigned Q32.32 value in Era 0", () => {
+    expect(convertNtpQ32_32ToUnix("18446744073709551615")).toMatchObject({
+      ntpSeconds: "4294967295",
+      ntpFraction: "4294967295",
+    });
+  });
+
+  it.each([
+    "",
+    "-1",
+    "+1",
+    "1.5",
+    "NaN",
+    "18446744073709551616",
+  ])("rejects invalid Q32.32 input: %s", (value) => {
+    expect(() => convertNtpQ32_32ToUnix(value)).toThrow(RangeError);
+  });
+
+  it("rejects an Era 0 Q32.32 value before Unix epoch", () => {
+    expect(() => convertNtpQ32_32ToUnix("0")).toThrow(
+      "before the supported Unix epoch",
+    );
+  });
 });
