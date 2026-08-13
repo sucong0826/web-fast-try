@@ -43,7 +43,7 @@ For input `17160596469120441998`, the result is:
 NTP seconds:        3995512721
 NTP fraction:        1673469582 / 4294967296
 Unix timestamp:      1786523921.389634999912
-Unix milliseconds:   1786523921389.634999912
+Unix milliseconds:   1786523921389.634999912232
 UTC:                 2026-08-12T08:38:41.389Z
 ```
 
