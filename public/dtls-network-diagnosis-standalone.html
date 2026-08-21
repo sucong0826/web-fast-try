@@ -1,0 +1,2196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connection diagnostics — WebRTC / DTLS (offline copy)</title>
+<!-- Standalone offline build: no external fonts/CDN/STUN dependency. Open directly via file:// with no network access. -->
+<style>
+:root{
+  --bloom:#0B5CFF; --bloom-hover:#0447A8; --midnight:#00053D;
+  --g000:#FFFFFF; --g025:#F7F9FD; --g050:#EFF3FA; --g100:#E4EAF3; --g200:#D3DBE7;
+  --g300:#B4BECE; --g400:#8A94A6; --g500:#5C677D; --g600:#41485C; --g700:#2A3042;
+  --ok:#00A776; --ok-deep:#007956; --ok-bg:rgba(0,167,118,.12); --ok-edge:rgba(0,167,118,.30);
+  --wa:#B36A00; --wa-deep:#8A5200; --wa-bg:rgba(179,106,0,.12); --wa-edge:rgba(179,106,0,.32);
+  --er:#D31B4E; --er-deep:#B01542; --er-bg:rgba(211,27,78,.10); --er-edge:rgba(211,27,78,.34);
+  --bl-bg:rgba(11,92,255,.10);
+  --font-display:'Happy Display','Montserrat',system-ui,sans-serif;
+  --font-text:'Almaden Sans','Inter',system-ui,-apple-system,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --ease:cubic-bezier(.4,0,.2,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none !important}
+html{scroll-behavior:smooth}
+body{
+  background:var(--g025); color:var(--midnight);
+  font-family:var(--font-text); font-size:14px; letter-spacing:.015em; line-height:1.45;
+  -webkit-font-smoothing:antialiased; padding-bottom:72px;
+}
+a{color:var(--bloom);text-decoration:none}
+a:hover{color:var(--bloom-hover);text-decoration:underline}
+b,strong{font-weight:600}
+code{font-family:var(--mono);font-size:.92em;background:var(--g050);padding:1px 5px;border-radius:5px}
+[data-lucide]{width:1em;height:1em;flex:0 0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--g200);border-radius:8px;border:3px solid transparent;background-clip:content-box}
+
+/* ---------- header ---------- */
+.hdr{
+  position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:20px;
+  height:68px;padding:0 40px;background:rgba(255,255,255,.86);
+  backdrop-filter:blur(14px);border-bottom:1px solid var(--g100);
+}
+.hdr svg.wordmark{height:22px;width:auto;display:block;fill:var(--bloom);flex:0 0 auto}
+.hdr .rule{width:1px;height:24px;background:var(--g100)}
+.hdr-title{display:flex;flex-direction:column;gap:1px;min-width:0}
+.hdr-title b{font-size:15px;font-weight:600;line-height:1.2}
+.hdr-title span{font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--g400)}
+.hdr-actions{display:flex;align-items:center;gap:10px;margin-left:auto}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:40px;padding:0 20px;border-radius:8px;border:1px solid transparent;
+  font-family:var(--font-text);font-size:14px;font-weight:500;letter-spacing:.03em;
+  cursor:pointer;white-space:nowrap;transition:background .15s var(--ease),transform .1s var(--ease);
+}
+.btn:active:not(:disabled){transform:scale(.98)}
+.btn-primary{background:var(--bloom);color:#fff}
+.btn-primary:hover:not(:disabled){background:var(--bloom-hover)}
+.btn-secondary{background:#fff;color:var(--bloom);border-color:var(--bloom)}
+.btn-secondary:hover:not(:disabled){background:rgba(11,92,255,.08)}
+.btn:disabled{background:var(--g100);color:var(--g400);border-color:transparent;cursor:not-allowed}
+.btn-icon{width:40px;height:40px;padding:0;border-radius:10px;background:#fff;border:1px solid var(--g100);color:var(--g500)}
+.btn-icon:hover{background:var(--g050)}
+.btn [data-lucide]{width:18px;height:18px}
+.btn-icon [data-lucide]{width:17px;height:17px}
+.spinning [data-lucide]{animation:spin 1.1s linear infinite}
+
+/* ---------- shell ---------- */
+.wrap{max-width:1360px;margin:0 auto;padding:0 40px}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:40px;align-items:center;padding:40px 0 32px}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:8px;align-self:flex-start;
+  padding:5px 12px 5px 9px;border-radius:999px;background:rgba(11,92,255,.08);
+  color:var(--bloom);font-size:12px;font-weight:500;letter-spacing:.03em;
+}
+.eyebrow [data-lucide]{width:14px;height:14px}
+.hero h1{
+  font-family:var(--font-display);font-weight:600;font-size:40px;line-height:1.15;
+  letter-spacing:-.015em;max-width:22ch;text-wrap:pretty;
+}
+.hero p{font-size:16px;line-height:1.5;color:var(--g500);max-width:62ch;text-wrap:pretty}
+.hero-col{display:flex;flex-direction:column;gap:14px}
+.steps{
+  display:flex;flex-direction:column;gap:2px;list-style:none;padding:18px 20px;
+  background:#fff;border:1px solid var(--g100);border-radius:16px;box-shadow:0 1px 2px rgba(0,5,61,.04);
+}
+.steps li{display:flex;gap:10px;align-items:baseline;padding:6px 0;font-size:13px;color:var(--g600)}
+.steps li i{flex:0 0 18px;font-family:var(--font-display);font-weight:600;font-style:normal;color:var(--g300)}
+
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
+main{display:flex;flex-direction:column;gap:20px;min-width:0}
+aside{display:flex;flex-direction:column;gap:16px;position:sticky;top:92px}
+
+/* ---------- verdict ---------- */
+.verdict{background:#fff;border:1px solid var(--g100);border-radius:20px;box-shadow:0 2px 8px rgba(0,5,61,.05);overflow:hidden}
+.verdict-top{display:flex;gap:18px;padding:24px 26px 20px}
+.disc{
+  display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+  width:48px;height:48px;border-radius:999px;background:var(--g050);color:var(--g400);
+}
+.disc [data-lucide]{width:24px;height:24px}
+.verdict-copy{display:flex;flex-direction:column;gap:6px;min-width:0}
+.verdict-copy h2{font-family:var(--font-display);font-weight:600;font-size:24px;line-height:1.25;letter-spacing:-.01em;text-wrap:pretty}
+.verdict-copy p{font-size:14px;line-height:1.5;color:var(--g500);max-width:68ch;text-wrap:pretty}
+.meter-wrap{padding:0 26px 22px}
+.meter{display:flex;height:8px;gap:3px}
+.meter i{border-radius:999px;transition:flex-basis .4s var(--ease)}
+.meter .s-ok{background:var(--ok)} .meter .s-wa{background:var(--wa)}
+.meter .s-er{background:var(--er)} .meter .s-rest{background:var(--g100)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;margin-top:12px;font-size:13px;color:var(--g600)}
+.legend span{display:flex;align-items:center;gap:7px}
+.legend i{width:8px;height:8px;border-radius:999px}
+.legend .grow{flex:1}
+.legend .muted{color:var(--g400)}
+.next{display:flex;gap:11px;align-items:flex-start;padding:15px 26px 17px;font-size:13px}
+.next [data-lucide]{width:18px;height:18px;margin-top:1px}
+.next b{display:block;font-size:13px;font-weight:600;letter-spacing:.015em;margin-bottom:3px}
+.next p{color:var(--g600);line-height:1.5;max-width:78ch;text-wrap:pretty}
+.next.t-er{background:rgba(211,27,78,.05);border-top:1px solid rgba(211,27,78,.16);color:var(--er-deep)}
+.next.t-wa{background:rgba(179,106,0,.06);border-top:1px solid rgba(179,106,0,.2);color:var(--wa-deep)}
+.next.t-ok{background:rgba(0,167,118,.06);border-top:1px solid rgba(0,167,118,.2);color:var(--ok-deep)}
+.next.t-bl{background:rgba(11,92,255,.05);border-top:1px solid rgba(11,92,255,.16);color:var(--bloom-hover)}
+
+/* ---------- filters ---------- */
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pill{
+  display:inline-flex;align-items:center;white-space:nowrap;height:34px;padding:0 15px;
+  border-radius:999px;border:1px solid var(--g100);background:#fff;color:var(--g600);
+  font-family:var(--font-text);font-size:13px;font-weight:500;letter-spacing:.02em;
+  cursor:pointer;transition:background .15s var(--ease);
+}
+.pill:hover{background:var(--g050)}
+.pill[aria-pressed="true"]{background:var(--midnight);border-color:var(--midnight);color:#fff}
+.link-btn{
+  display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;margin-left:auto;
+  border:1px solid transparent;border-radius:8px;background:transparent;color:var(--bloom);
+  font-family:var(--font-text);font-size:13px;font-weight:500;letter-spacing:.03em;
+  cursor:pointer;white-space:nowrap;
+}
+.link-btn:hover{background:rgba(11,92,255,.08)}
+
+/* ---------- groups & cards ---------- */
+#groups{display:flex;flex-direction:column;gap:34px}
+.group{display:flex;flex-direction:column;gap:12px}
+.group.hidden{display:none}
+.group-hd{display:flex;align-items:center;gap:10px;padding:0 2px}
+.group-hd [data-lucide]{width:17px;height:17px;color:var(--bloom)}
+.group-hd b{font-family:var(--font-display);font-size:17px;font-weight:600;letter-spacing:-.005em;color:var(--midnight)}
+.group-hd span{margin-left:auto;font-size:12px;font-weight:500;letter-spacing:.03em;color:var(--g400)}
+.glist{
+  background:#fff;border:1px solid var(--g100);border-radius:16px;overflow:hidden;
+  box-shadow:0 1px 2px rgba(0,5,61,.04);
+}
+
+.card{transition:background .2s var(--ease)}
+.card:not(:last-child){border-bottom:1px solid var(--g050)}
+.card.hidden{display:none}
+.card.open{background:var(--g025)}
+.card.s-warn{box-shadow:inset 3px 0 0 var(--wa)}
+.card.s-fail{box-shadow:inset 3px 0 0 var(--er)}
+.card.s-running{box-shadow:inset 3px 0 0 var(--bloom)}
+.card-hd{display:flex;align-items:center;gap:12px;padding:11px 16px;cursor:pointer;user-select:none;text-align:left;width:100%;background:none;border:0;font-family:inherit;color:inherit}
+.card-hd:hover{background:var(--g025)}
+.dot{
+  display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+  width:22px;height:22px;border-radius:999px;background:var(--g050);color:var(--g400);
+}
+.dot [data-lucide]{width:13px;height:13px}
+.card-txt{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.card-txt b{font-size:14px;font-weight:600;letter-spacing:.005em;line-height:1.35}
+.card-txt span{font-size:12.5px;line-height:1.4;color:var(--g400);text-wrap:pretty}
+.chip{
+  flex:0 0 auto;padding:2px 9px;border-radius:999px;background:var(--g050);color:var(--g400);
+  font-size:11px;font-weight:600;letter-spacing:.03em;white-space:nowrap;
+}
+.chev{flex:0 0 auto;display:inline-flex;color:var(--g300);transition:transform .24s var(--ease)}
+.chev [data-lucide]{width:15px;height:15px}
+.card.open .chev{transform:rotate(180deg)}
+
+.s-pass .dot,.s-pass .chip{background:var(--ok-bg);color:var(--ok)}
+.s-warn .dot,.s-warn .chip{background:var(--wa-bg);color:var(--wa)}
+.s-fail .dot,.s-fail .chip{background:var(--er-bg);color:var(--er)}
+.s-running .dot,.s-running .chip{background:var(--bl-bg);color:var(--bloom)}
+.s-running .dot [data-lucide]{animation:spin 1.1s linear infinite}
+
+.detail{display:none;padding:0 16px 16px 50px;flex-direction:column;gap:12px}
+.card.open .detail{display:flex}
+.detail>.hint{font-size:13px;color:var(--g400);font-style:italic}
+
+.kv{display:grid;grid-template-columns:minmax(140px,240px) minmax(0,1fr);border-top:1px solid var(--g050)}
+.kv-k{padding:8px 16px 8px 0;border-bottom:1px solid var(--g050);font-size:13px;color:var(--g400)}
+.kv-v{padding:8px 0;border-bottom:1px solid var(--g050);font-size:13px;line-height:1.45;color:var(--g700);word-break:break-word}
+.kv-v.v-pass{color:var(--ok-deep);font-weight:500}
+.kv-v.v-warn{color:var(--wa-deep);font-weight:500}
+.kv-v.v-fail{color:var(--er-deep);font-weight:500}
+.kv-v.v-mono{font-family:var(--mono);font-size:12px}
+.kv.three{grid-template-columns:minmax(140px,220px) minmax(0,1.4fr) minmax(0,1fr)}
+
+.note{padding:13px 15px;border-radius:12px;font-size:13px;line-height:1.55}
+.note b{display:block;font-weight:600;letter-spacing:.015em;margin-bottom:4px}
+.note p,.note ul{color:var(--g600)}
+.note ul{margin:6px 0 0 18px}
+.note li{margin:3px 0}
+.note-info{background:rgba(11,92,255,.05);border:1px solid rgba(11,92,255,.18);color:var(--bloom-hover)}
+.note-good{background:rgba(0,167,118,.07);border:1px solid rgba(0,167,118,.22);color:var(--ok-deep)}
+.note-warn{background:rgba(179,106,0,.07);border:1px solid rgba(179,106,0,.24);color:var(--wa-deep)}
+.note-bad{background:rgba(211,27,78,.06);border:1px solid rgba(211,27,78,.22);color:var(--er-deep)}
+.note pre{
+  margin-top:8px;padding:11px 12px;background:#fff;border:1px solid var(--g100);border-radius:8px;
+  font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--g700);overflow-x:auto;white-space:pre;
+}
+
+/* ---------- side panels ---------- */
+.panel{background:#fff;border:1px solid var(--g100);border-radius:16px;box-shadow:0 1px 2px rgba(0,5,61,.04);overflow:hidden}
+.panel-hd{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--g050)}
+.panel-hd [data-lucide]{width:15px;height:15px;color:var(--g400)}
+.panel-hd b{font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--g500)}
+.panel-hd .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g300)}
+.env{padding:6px 16px 12px}
+.env-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--g025)}
+.env-row span{font-size:12px;color:var(--g400);white-space:nowrap}
+.env-row b{font-size:12px;font-weight:500;color:var(--g700);text-align:right;word-break:break-word}
+
+#log{max-height:460px;overflow-y:auto;padding:8px 4px 10px 0}
+.log-row{display:grid;grid-template-columns:78px minmax(0,1fr);gap:8px;padding:4px 12px 4px 16px}
+.log-row time{font-family:var(--mono);font-size:11px;color:var(--g300);letter-spacing:-.01em}
+.log-row p{font-size:12px;line-height:1.5;color:var(--g500);word-break:break-word}
+.log-row.t-bloom p{color:var(--bloom);font-weight:500}
+.log-row.t-good p{color:var(--ok-deep)}
+.log-row.t-warn p{color:var(--wa-deep)}
+.log-row.t-bad p{color:var(--er-deep);font-weight:500}
+
+details.panel summary{display:flex;align-items:center;gap:8px;padding:14px 16px;cursor:pointer;list-style:none;font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--g500)}
+details.panel summary::-webkit-details-marker{display:none}
+details.panel summary [data-lucide]{width:15px;height:15px;color:var(--g400)}
+.adv{padding:4px 16px 18px;display:flex;flex-direction:column;gap:12px;border-top:1px solid var(--g050)}
+.adv .help{font-size:12px;line-height:1.5;color:var(--g400);padding-top:10px}
+.adv input[type=text]{
+  width:100%;height:38px;padding:0 12px;border:1px solid var(--g200);border-radius:8px;
+  background:#fff;font-family:var(--font-text);font-size:13px;color:var(--midnight);outline:none;
+}
+.adv input[type=text]:focus{border-color:var(--bloom);box-shadow:0 0 0 3px rgba(11,92,255,.18)}
+.adv label{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--g600);cursor:pointer}
+.adv input[type=checkbox]{width:16px;height:16px;accent-color:var(--bloom);cursor:pointer}
+.privacy{display:flex;gap:10px;padding:14px 16px;background:rgba(11,92,255,.05);border:1px solid rgba(11,92,255,.16);border-radius:16px}
+.privacy [data-lucide]{width:16px;height:16px;color:var(--bloom)}
+.privacy p{font-size:12px;line-height:1.55;color:var(--g600)}
+
+@media (max-width:1100px){
+  .cols{grid-template-columns:minmax(0,1fr)}
+  aside{position:static}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:640px){
+  .hdr{padding:0 16px;gap:12px;height:auto;min-height:64px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}
+  .hdr-actions{width:100%;margin-left:0}
+  .btn{flex:1}
+  .wrap{padding:0 16px}
+  .hero h1{font-size:30px}
+  .detail{padding-left:16px}
+  .kv,.kv.three{grid-template-columns:minmax(0,1fr)}
+  .kv-k{padding-bottom:0;border-bottom:0}
+  .kv-v{padding-top:2px}
+}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <!-- Zoom wordmark: official asset path data, never redrawn -->
+  <svg class="wordmark" viewBox="0 0 351.8447266 80" role="img" aria-label="Zoom"><title>Zoom</title><path d="M73.7864151,78.8349609h-62.90728c-4.4136801,0-8.3570995-2.6350098-10.0460796-6.712677s-0.76362-8.7295189,2.3573999-11.849968l43.5734711-43.573288H15.5339861c-8.5792007,0-15.5339804-6.9547901-15.5339804-15.5339794h58.0143013c4.4132996,0,8.3565331,2.6342499,10.0456963,6.7119198c1.6893616,4.0776696,0.7645569,8.7287598-2.3560791,11.850729L22.1302757,63.3009682h36.1221657c8.5792007,0,15.5339813,6.9547768,15.5339813,15.5339775L73.7864151,78.8349609z M351.844696,30.2912598C351.844696,13.5884399,338.256073,0,321.5534363,0c-8.9343262,0-16.9751282,3.8903201-22.5242615,10.0633297C293.480011,3.8903201,285.439209,0,276.5048828,0c-16.7026367,0-30.2912598,13.5884399-30.2912598,30.2912598v48.5436859c8.5791626,0,15.5339661-6.9547882,15.5339661-15.5339699v-33.009716c0-8.1371403,6.6201477-14.7572803,14.7572937-14.7572803s14.7572937,6.6201496,14.7572937,14.7572803v33.0097313c0,8.5791664,6.9548035,15.5339699,15.5339661,15.5339699V30.2912598c0-8.1371403,6.6201477-14.7572803,14.7572937-14.7572803S336.31073,22.154129,336.31073,30.2912598v33.0097313c0,8.5791664,6.9548035,15.5339699,15.5339661,15.5339699l0.0000305-48.5436897L351.844696,30.2912598z M238.4466248,40c0,22.0914078-17.9085846,40-40,40s-40-17.9085922-40-40s17.9086456-40,40-40S238.4466248,17.9085903,238.4466248,40z M222.9126434,40c0-13.5122108-10.9538116-24.4660206-24.4660187-24.4660206S173.9806061,26.4877892,173.9806061,40s10.9538116,24.4660187,24.4660187,24.4660187S222.9126434,53.512207,222.9126434,40z M152.2330322,40c0,22.0914078-17.9085846,40-39.9999924,40s-40-17.9085922-40-40s17.9086304-40,40-40S152.2330322,17.9085903,152.2330322,40z M136.6990509,40c0-13.5122108-10.953804-24.4660206-24.466011-24.4660206S87.7670212,26.4877892,87.7670212,40s10.9538116,24.4660187,24.4660187,24.4660187S136.6990509,53.512207,136.6990509,40z"/></svg>
+  <div class="rule"></div>
+  <div class="hdr-title">
+    <b>Connection diagnostics</b>
+    <span>WebFastTry · WebRTC / DTLS</span>
+  </div>
+  <div class="hdr-actions">
+    <button class="btn btn-icon" id="btnReset" title="Start over" onclick="location.reload()"><i data-lucide="rotate-ccw"></i></button>
+    <button class="btn btn-secondary" id="btnExport" disabled onclick="exportResults()"><i data-lucide="download"></i>Download report</button>
+    <button class="btn btn-primary" id="btnRunAll" onclick="runAllTests()"><i data-lucide="play"></i><span id="runLabel">Run diagnostics</span></button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section class="hero">
+    <div class="hero-col">
+      <div class="eyebrow"><i data-lucide="shield-check"></i>Read-only · nothing leaves your device</div>
+      <h1 id="heroTitle">Check whether this device can make a secure Zoom call</h1>
+      <p id="heroBody">15 read-only checks, about 60 seconds. Nothing is sent anywhere — you download a report at the end and pass it to whoever asked you to run this.</p>
+    </div>
+    <ol class="steps" id="steps">
+      <li><i>1</i>Run the checks — about 60 seconds</li>
+      <li><i>2</i>Stay on this tab until it finishes</li>
+      <li><i>3</i>Download the report and send it to us</li>
+    </ol>
+  </section>
+
+  <div class="cols">
+    <main>
+      <div class="verdict" id="verdict" hidden>
+        <div class="verdict-top">
+          <div class="disc" id="verdictDisc"><i data-lucide="clock"></i></div>
+          <div class="verdict-copy">
+            <h2 id="verdictTitle">Running checks — keep this tab open</h2>
+            <p id="verdictBody">Some checks send repeated probes and take up to 20 seconds each. Results appear as they finish.</p>
+          </div>
+        </div>
+        <div class="meter-wrap">
+          <div class="meter">
+            <i class="s-ok" id="segPass" style="flex:0 0 0%"></i>
+            <i class="s-wa" id="segWarn" style="flex:0 0 0%"></i>
+            <i class="s-er" id="segFail" style="flex:0 0 0%"></i>
+            <i class="s-rest" id="segRest" style="flex:0 0 100%"></i>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--ok)"></i><b id="cntPass">0</b> passed</span>
+            <span><i style="background:var(--wa)"></i><b id="cntWarn">0</b> need attention</span>
+            <span><i style="background:var(--er)"></i><b id="cntFail">0</b> failed</span>
+            <span class="grow"></span>
+            <span class="muted" id="runMeta">0 of 15 complete</span>
+          </div>
+        </div>
+        <div class="next t-bl" id="nextStep" hidden>
+          <i data-lucide="arrow-right-circle"></i>
+          <div>
+            <b id="nextTitle">What to do next</b>
+            <p id="nextBody"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button class="pill" aria-pressed="true" data-filter="all" onclick="setFilter('all')">All <span>&nbsp;15</span></button>
+        <button class="pill" aria-pressed="false" data-filter="problems" onclick="setFilter('problems')">Needs attention&nbsp;<span id="pillProblems">0</span></button>
+        <button class="pill" aria-pressed="false" data-filter="passed" onclick="setFilter('passed')">Passed&nbsp;<span id="pillPassed">0</span></button>
+        <button class="link-btn" id="btnToggleAll" onclick="toggleAll()">Expand all</button>
+      </div>
+
+      <div id="groups"></div>
+    </main>
+
+    <aside>
+      <div class="panel">
+        <div class="panel-hd"><i data-lucide="monitor"></i><b>This device</b></div>
+        <div class="env" id="env"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-hd"><i data-lucide="activity"></i><b>Activity log</b><span class="count" id="logCount">0 entries</span></div>
+        <div id="log"></div>
+      </div>
+
+      <details class="panel">
+        <summary><i data-lucide="settings-2"></i>Advanced (optional)</summary>
+        <div class="adv">
+          <p class="help"><b>STUN servers</b> — used by the network-path checks below. Leave this blank if this device has no internet access at all; those checks will be skipped instead of reported as failed.</p>
+          <input id="stunServer" type="text" placeholder="stun.l.google.com:19302, stun1.l.google.com:19302" value="stun.l.google.com:19302, stun1.l.google.com:19302, stun2.l.google.com:19302">
+          <p class="help"><b>TURN server</b> — only needed if our team asked you to test a specific relay server.</p>
+          <input id="turnServer" type="text" placeholder="turn:user:pass@turn.example.com:3478">
+          <label><input type="checkbox" id="useTurn" checked> Use it to measure real packet loss and MTU</label>
+        </div>
+      </details>
+
+      <div class="privacy">
+        <i data-lucide="lock"></i>
+        <p>The report stays on your device until you send it. It contains network and browser details — no message content and no video.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Inline icon set — replaces the lucide CDN bundle so this page
+   has zero external dependencies. Path data for the ~19 icons
+   actually used on this page, vendored from lucide-react (ISC).
+   Mimics window.lucide.createIcons() closely enough that every
+   existing data-lucide call site below needs no changes.
+   ============================================================ */
+(function () {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const ICONS = {
+    'activity': [['path', { d: 'M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2' }]],
+    'arrow-right-circle': [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'M8 12h8' }], ['path', { d: 'm12 16 4-4-4-4' }]],
+    'building-2': [
+      ['path', { d: 'M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z' }],
+      ['path', { d: 'M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2' }],
+      ['path', { d: 'M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2' }],
+      ['path', { d: 'M10 6h4' }], ['path', { d: 'M10 10h4' }], ['path', { d: 'M10 14h4' }], ['path', { d: 'M10 18h4' }],
+    ],
+    'check': [['path', { d: 'M20 6 9 17l-5-5' }]],
+    'chevron-down': [['path', { d: 'm6 9 6 6 6-6' }]],
+    'clock': [['circle', { cx: '12', cy: '12', r: '10' }], ['polyline', { points: '12 6 12 12 16 14' }]],
+    'download': [['path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }], ['polyline', { points: '7 10 12 15 17 10' }], ['line', { x1: '12', x2: '12', y1: '15', y2: '3' }]],
+    'globe': [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20' }], ['path', { d: 'M2 12h20' }]],
+    'loader-circle': [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
+    'lock': [['rect', { width: '18', height: '11', x: '3', y: '11', rx: '2', ry: '2' }], ['path', { d: 'M7 11V7a5 5 0 0 1 10 0v4' }]],
+    'monitor': [['rect', { width: '20', height: '14', x: '2', y: '3', rx: '2' }], ['line', { x1: '8', x2: '16', y1: '21', y2: '21' }], ['line', { x1: '12', x2: '12', y1: '17', y2: '21' }]],
+    'play': [['polygon', { points: '6 3 20 12 6 21 6 3' }]],
+    'rotate-ccw': [['path', { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' }], ['path', { d: 'M3 3v5h5' }]],
+    'search-check': [['path', { d: 'm8 11 2 2 4-4' }], ['circle', { cx: '11', cy: '11', r: '8' }], ['path', { d: 'm21 21-4.3-4.3' }]],
+    'settings-2': [['path', { d: 'M20 7h-9' }], ['path', { d: 'M14 17H5' }], ['circle', { cx: '17', cy: '17', r: '3' }], ['circle', { cx: '7', cy: '7', r: '3' }]],
+    'shield-alert': [['path', { d: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z' }], ['path', { d: 'M12 8v4' }], ['path', { d: 'M12 16h.01' }]],
+    'shield-check': [['path', { d: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z' }], ['path', { d: 'm9 12 2 2 4-4' }]],
+    'triangle-alert': [['path', { d: 'm21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3' }], ['path', { d: 'M12 9v4' }], ['path', { d: 'M12 17h.01' }]],
+    'x': [['path', { d: 'M18 6 6 18' }], ['path', { d: 'm6 6 12 12' }]],
+  };
+  const DEFAULT_ATTRS = {
+    xmlns: SVG_NS, width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+  };
+  function createIcons() {
+    document.querySelectorAll('[data-lucide]').forEach(el => {
+      const name = el.getAttribute('data-lucide');
+      const nodes = ICONS[name];
+      if (!nodes) { console.warn('icon not found: ' + name); return; }
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      Object.entries(DEFAULT_ATTRS).forEach(([k, v]) => svg.setAttribute(k, v));
+      Array.from(el.attributes).forEach(a => svg.setAttribute(a.name, a.value));
+      svg.setAttribute('class', ['lucide', 'lucide-' + name, el.getAttribute('class') || ''].join(' ').trim());
+      nodes.forEach(([tag, attrs]) => {
+        const child = document.createElementNS(SVG_NS, tag);
+        Object.entries(attrs).forEach(([k, v]) => child.setAttribute(k, v));
+        svg.appendChild(child);
+      });
+      if (el.parentNode) el.parentNode.replaceChild(svg, el);
+    });
+  }
+  window.lucide = { createIcons };
+})();
+</script>
+<script>
+/* ============================================================
+   Structure — groups and checks, in plain language.
+   ============================================================ */
+const GROUPS = [
+  { title: 'Browser & platform', icon: 'monitor', tests: [
+    ['webrtc-api',        'Video calling support',        'The browser exposes every API a Zoom call needs.'],
+    ['policy-check',      'Browser capabilities',         'Data channels, device list, local storage and window context.'],
+    ['media-permission',  'Camera & microphone access',   'Whether policy or permissions block capture on this domain.'],
+  ]},
+  { title: 'Network path', icon: 'globe', tests: [
+    ['ice-candidates',    'Network route discovery',      'Collects the routes your device can offer for a call (ICE).'],
+    ['udp-socket',        'UDP connectivity',             'Confirms the browser can send and receive UDP packets.'],
+    ['packet-loss',       'Packet loss',                  'Measures real loss over 30 round trips — the most common cause of dropped calls.'],
+    ['network-type',      'Network type',                 'Infers VPN, corporate or home network from the addresses collected.'],
+    ['mtu-probe',         'Packet size limit (MTU)',      'Looks for a fragmentation black hole that truncates large messages.'],
+  ]},
+  { title: 'Secure handshake (DTLS)', icon: 'lock', tests: [
+    ['dtls-local',        'Local handshake test',         'Runs a complete handshake inside this page to separate browser problems from network problems.'],
+    ['tls-version',       'Protocol version & cipher',    'Reports the protocol version and cipher the browser negotiated.'],
+    ['cert-fingerprint',  'Certificate fingerprint',      'Verifies the one-time certificate this browser generates for each call.'],
+    ['connection-speed',  'Handshake timing',             'Times each stage of the connection from start to connected.'],
+  ]},
+  { title: 'Managed device policy', icon: 'building-2', tests: [
+    ['extension-audit',   'Forced browser extensions',    'Detects admin-installed extensions that can inspect encrypted traffic.'],
+    ['enterprise-policy', 'Enterprise policy impact',     'Maps the managed-browser policies in effect to how they affect calls.'],
+  ]},
+  { title: 'Diagnosis', icon: 'search-check', tests: [
+    ['dtls-failure-analysis', 'Root-cause summary',       'Ranks the likely causes and states the next action for your IT team.'],
+  ]},
+];
+
+const TOTAL = GROUPS.reduce((n, g) => n + g.tests.length, 0);
+const STATUS = {
+  pending: { label: 'Waiting',   icon: 'clock' },
+  running: { label: 'Running',   icon: 'loader-circle' },
+  pass:    { label: 'Passed',    icon: 'check' },
+  warn:    { label: 'Attention', icon: 'triangle-alert' },
+  fail:    { label: 'Failed',    icon: 'x' },
+};
+
+/* ============================================================
+   State
+   ============================================================ */
+const results = {};       // testId -> { status, detail }
+const metrics = {};       // structured measurements — drives the exported report
+const timeline = [];      // { time, msg, tone }
+let lastRTCErrors = [];
+let loopbackPC1 = null, loopbackPC2 = null;
+let filter = 'all';
+let allOpen = false;
+let runStart = 0;
+
+const CONFIG = {
+  get turnServer() { return document.getElementById('turnServer')?.value.trim() || ''; },
+  get useTurn() { return document.getElementById('useTurn')?.checked ?? true; },
+  get stunServers() {
+    const raw = document.getElementById('stunServer')?.value.trim() || '';
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+  },
+};
+
+/* DTLS alert codes -> human-readable cause (RFC 5246 §7.2 / RFC 6347) */
+const DTLS_ALERTS = {
+  10: 'unexpected_message — unexpected handshake message',
+  20: 'bad_record_mac — record MAC check failed (traffic may be modified in transit)',
+  21: 'decryption_failed', 22: 'record_overflow', 30: 'decompression_failure',
+  40: 'handshake_failure — no shared parameters (usually a version or cipher mismatch)',
+  41: 'no_certificate', 42: 'bad_certificate — certificate damaged or replaced (classic TLS interception symptom)',
+  43: 'unsupported_certificate', 44: 'certificate_revoked', 45: 'certificate_expired',
+  46: 'certificate_unknown', 47: 'illegal_parameter',
+  48: 'unknown_ca — unknown authority (common when a self-signed DTLS certificate is inspected)',
+  49: 'access_denied', 50: 'decode_error — message could not be decoded (truncated data, typical of an MTU black hole)',
+  51: 'decrypt_error — decryption error (data was altered)', 60: 'export_restriction',
+  70: 'protocol_version — protocol version mismatch (DTLS 1.0 / 1.2 / 1.3 negotiation failed)',
+  71: 'insufficient_security', 80: 'user_canceled', 90: 'user_canceled',
+  109: 'missing_extension', 110: 'unsupported_extension', 112: 'unrecognized_name',
+  115: 'certificate_required', 116: 'no_application_protocol', 120: 'no_application_protocol',
+};
+function decodeDTLSAlert(n) {
+  if (n === undefined || n === null) return 'unknown alert code';
+  return DTLS_ALERTS[n] || ('alert code ' + n + ' (not catalogued — see RFC 5246)');
+}
+
+/* ============================================================
+   Rendering helpers
+   ============================================================ */
+function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]); }
+
+/** rows: [label, value, tone?]  tone: pass | warn | fail | mono | '' */
+function tbl(rows, cls) {
+  return '<div class="kv' + (cls ? ' ' + cls : '') + '">' + rows.map(r =>
+    '<div class="kv-k">' + r[0] + '</div><div class="kv-v' + (r[2] ? ' v-' + r[2] : '') + '">' + r[1] + '</div>'
+  ).join('') + '</div>';
+}
+function tbl3(rows) {
+  return '<div class="kv three">' + rows.map(r =>
+    '<div class="kv-k">' + r[0] + '</div><div class="kv-v">' + r[1] + '</div><div class="kv-v' + (r[3] ? ' v-' + r[3] : '') + '">' + r[2] + '</div>'
+  ).join('') + '</div>';
+}
+function note(tone, title, body) {
+  return '<div class="note note-' + tone + '"><b>' + title + '</b>' + body + '</div>';
+}
+
+function icons() { if (window.lucide) lucide.createIcons(); }
+
+/* ---- build the check list ---- */
+function renderGroups() {
+  document.getElementById('groups').innerHTML = GROUPS.map(g => `
+    <section class="group" data-group>
+      <div class="group-hd"><i data-lucide="${g.icon}"></i><b>${g.title}</b><span>${g.tests.length} ${g.tests.length === 1 ? 'check' : 'checks'}</span></div>
+      <div class="glist">
+      ${g.tests.map(([id, name, desc]) => `
+        <div class="card s-pending" id="card-${id}">
+          <button class="card-hd" type="button" onclick="toggleCard('${id}')" aria-expanded="false">
+            <span class="dot"><i data-lucide="clock"></i></span>
+            <span class="card-txt"><b>${name}</b><span>${desc}</span></span>
+            <span class="chip">Waiting</span>
+            <span class="chev"><i data-lucide="chevron-down"></i></span>
+          </button>
+          <div class="detail"><p class="hint">Run the diagnostics to see what this check measured.</p></div>
+        </div>`).join('')}
+      </div>
+    </section>`).join('');
+  icons();
+}
+
+function toggleCard(id) {
+  const card = document.getElementById('card-' + id);
+  if (!card || card.classList.contains('s-pending')) return;
+  card.classList.toggle('open');
+  card.querySelector('.card-hd').setAttribute('aria-expanded', card.classList.contains('open'));
+}
+
+function toggleAll() {
+  allOpen = !allOpen;
+  document.querySelectorAll('.card').forEach(c => {
+    if (c.classList.contains('s-pending')) return;
+    c.classList.toggle('open', allOpen);
+    c.querySelector('.card-hd').setAttribute('aria-expanded', allOpen);
+  });
+  document.getElementById('btnToggleAll').textContent = allOpen ? 'Collapse all' : 'Expand all';
+}
+
+function setFilter(f) {
+  filter = f;
+  document.querySelectorAll('.pill').forEach(p => p.setAttribute('aria-pressed', String(p.dataset.filter === f)));
+  document.querySelectorAll('.card').forEach(c => {
+    const st = (c.className.match(/s-(\w+)/) || [])[1];
+    const show = f === 'all'
+      || (f === 'problems' && (st === 'warn' || st === 'fail'))
+      || (f === 'passed' && st === 'pass');
+    c.classList.toggle('hidden', !show);
+  });
+  document.querySelectorAll('[data-group]').forEach(g => {
+    g.classList.toggle('hidden', g.querySelectorAll('.card:not(.hidden)').length === 0);
+  });
+}
+
+/* ---- activity log ---- */
+function addTimeline(msg, tone) {
+  const time = new Date().toISOString().substring(11, 23);
+  timeline.push({ time, msg, tone: tone || 'muted' });
+  const el = document.getElementById('log');
+  const row = document.createElement('div');
+  row.className = 'log-row t-' + (tone || 'muted');
+  row.innerHTML = '<time>' + time + '</time><p>' + esc(msg) + '</p>';
+  el.appendChild(row);
+  el.scrollTop = el.scrollHeight;
+  document.getElementById('logCount').textContent = timeline.length + (timeline.length === 1 ? ' entry' : ' entries');
+}
+
+/* ---- per-check status ---- */
+function updateTestUI(testId, status, detailHTML) {
+  const card = document.getElementById('card-' + testId);
+  if (!card) return;
+  const open = card.classList.contains('open');
+  card.className = 'card s-' + status + (open ? ' open' : '');
+  const meta = STATUS[status] || STATUS.pending;
+  card.querySelector('.chip').textContent = meta.label;
+  card.querySelector('.dot').innerHTML = '<i data-lucide="' + meta.icon + '"></i>';
+  if (detailHTML) card.querySelector('.detail').innerHTML = detailHTML;
+  if (status === 'fail' && !open) {
+    card.classList.add('open');
+    card.querySelector('.card-hd').setAttribute('aria-expanded', 'true');
+  }
+  icons();
+  results[testId] = { status, detail: detailHTML || '' };
+  updateSummary();
+  if (filter !== 'all') setFilter(filter);
+}
+
+function updateSummary() {
+  const vals = Object.values(results);
+  const n = s => vals.filter(r => r.status === s).length;
+  const pass = n('pass'), warn = n('warn'), fail = n('fail');
+  const done = pass + warn + fail;
+  const pct = v => (v / TOTAL * 100) + '%';
+
+  document.getElementById('verdict').hidden = false;
+  document.getElementById('cntPass').textContent = pass;
+  document.getElementById('cntWarn').textContent = warn;
+  document.getElementById('cntFail').textContent = fail;
+  document.getElementById('pillProblems').textContent = warn + fail;
+  document.getElementById('pillPassed').textContent = pass;
+  document.getElementById('segPass').style.flex = '0 0 ' + pct(pass);
+  document.getElementById('segWarn').style.flex = '0 0 ' + pct(warn);
+  document.getElementById('segFail').style.flex = '0 0 ' + pct(fail);
+  document.getElementById('segRest').style.flex = '0 0 ' + pct(TOTAL - done);
+  document.getElementById('runMeta').textContent = done < TOTAL
+    ? done + ' of ' + TOTAL + ' complete'
+    : 'Finished in ' + Math.round((performance.now() - runStart) / 1000) + ' s';
+  document.getElementById('btnExport').disabled = done === 0;
+}
+
+const DISC_TONE = { fail: 'var(--er-bg);color:var(--er)', warn: 'var(--wa-bg);color:var(--wa)', pass: 'var(--ok-bg);color:var(--ok)', running: 'var(--bl-bg);color:var(--bloom)' };
+function setVerdict(tone, icon, title, body, next) {
+  const disc = document.getElementById('verdictDisc');
+  disc.setAttribute('style', 'background:' + DISC_TONE[tone]);
+  disc.innerHTML = '<i data-lucide="' + icon + '"></i>';
+  disc.classList.toggle('spinning', tone === 'running');
+  document.getElementById('verdictTitle').textContent = title;
+  document.getElementById('verdictBody').textContent = body;
+  const box = document.getElementById('nextStep');
+  if (next) {
+    box.hidden = false;
+    box.className = 'next t-' + (tone === 'fail' ? 'er' : tone === 'warn' ? 'wa' : tone === 'pass' ? 'ok' : 'bl');
+    document.getElementById('nextTitle').textContent = next.title;
+    document.getElementById('nextBody').textContent = next.body;
+  } else {
+    box.hidden = true;
+  }
+  icons();
+}
+
+/* ---- environment panel ---- */
+function renderEnv() {
+  const ua = navigator.userAgent;
+  const managed = ua.includes('Island') || ua.includes('IslandBrowser');
+  const name = managed ? 'Managed browser (Island)'
+    : ua.includes('Edg/') ? 'Microsoft Edge'
+    : ua.includes('Chrome') ? 'Chrome'
+    : ua.includes('Firefox') ? 'Firefox'
+    : ua.includes('Safari') ? 'Safari' : 'Unknown';
+  const ver = (ua.match(/(?:Chrome|Firefox|Version)\/(\d+)/) || [])[1];
+  const rows = [
+    ['Browser', name + (ver ? ' ' + ver : '')],
+    ['Platform', navigator.platform || 'Unknown'],
+    ['Hardware', (navigator.hardwareConcurrency || '?') + ' cores · ' + (navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'memory n/a')],
+    ['Domain', location.hostname || 'local file'],
+    ['Connection', navigator.onLine ? 'Online' : 'Offline'],
+    ['Language', navigator.language || '—'],
+  ];
+  document.getElementById('env').innerHTML = rows.map(r =>
+    '<div class="env-row"><span>' + r[0] + '</span><b>' + esc(r[1]) + '</b></div>').join('');
+}
+
+/* Attach an RTCError listener — this is how we learn WHY DTLS failed.
+   When errorDetail === 'dtls-failure', receivedAlert carries the DTLS alert code. */
+function addRTCErrorListener(pc, label) {
+  try {
+    pc.onerror = (event) => {
+      const err = event.error;
+      const entry = {
+        label,
+        time: new Date().toISOString().substring(11, 23),
+        errorDetail: err?.errorDetail || 'unknown',
+        receivedAlert: err?.receivedAlert ?? null,
+        receivedAlertText: (err?.receivedAlert !== undefined && err?.receivedAlert !== null) ? decodeDTLSAlert(err.receivedAlert) : '',
+        sctpCauseCode: err?.sctpCauseCode ?? null,
+        message: err?.message || '',
+      };
+      lastRTCErrors.push(entry);
+      addTimeline('Connection error [' + label + ']: ' + entry.errorDetail
+        + (entry.receivedAlert !== null ? ' · alert ' + entry.receivedAlert + ' (' + entry.receivedAlertText + ')' : ''), 'bad');
+    };
+  } catch (e) {
+    addTimeline('Could not attach error listener on ' + label + ': ' + e.message, 'warn');
+  }
+}
+
+/* ============================================================
+   1 · Video calling support
+   ============================================================ */
+async function testWebRTCAPI() {
+  updateTestUI('webrtc-api', 'running');
+  const checks = {
+    'RTCPeerConnection': typeof RTCPeerConnection !== 'undefined',
+    'RTCSessionDescription': typeof RTCSessionDescription !== 'undefined',
+    'RTCIceCandidate': typeof RTCIceCandidate !== 'undefined',
+    'Data channels': typeof RTCDataChannelEvent !== 'undefined',
+    'Media devices': !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+  };
+  const allOk = Object.values(checks).every(Boolean);
+  metrics.webrtcApi = { allOk, checks };
+  const rows = Object.entries(checks).map(([k, v]) => [k, v ? 'Available' : 'Not available', v ? 'pass' : 'fail']);
+  updateTestUI('webrtc-api', allOk ? 'pass' : 'fail', tbl(rows) + (allOk ? '' :
+    note('bad', 'This browser cannot place a call at all', '<p>One or more core APIs are missing, which usually means WebRTC has been switched off by policy or by an extension. Nothing further on this page can succeed until that is reversed.</p>')));
+  addTimeline('Calling APIs ' + (allOk ? 'all available' : 'incomplete'), allOk ? 'good' : 'bad');
+  return allOk;
+}
+
+/* ============================================================
+   2 · Network route discovery (ICE)
+   ============================================================ */
+async function testICECandidates() {
+  updateTestUI('ice-candidates', 'running');
+  const stunList = CONFIG.stunServers;
+  if (!stunList.length) {
+    updateTestUI('ice-candidates', 'warn', tbl([['Result', 'No STUN server configured — skipped', 'warn']]) +
+      note('warn', 'Route discovery needs a STUN server', '<p>No STUN server is set in Advanced settings, so this check cannot run. If this device has no internet access, ask your IT team for an internal STUN/TURN address and enter it there.</p>'));
+    addTimeline('Route discovery skipped — no STUN server configured', 'warn');
+    return true;
+  }
+  return new Promise(resolve => {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:' + stunList[0] }] });
+    const c = { host: 0, srflx: 0, relay: 0, tcp: 0, other: 0 };
+    let gathered = false;
+
+    const timeout = setTimeout(() => {
+      if (gathered) return;
+      pc.close();
+      updateTestUI('ice-candidates', 'fail',
+        tbl([['Result', 'No routes found within 5 seconds', 'fail']]) +
+        note('bad', 'UDP looks completely blocked', '<p>The browser could not open a single network route. A firewall or policy is blocking outbound UDP, so calls cannot connect on the direct path.</p>'));
+      addTimeline('Route discovery timed out — the browser could not open a UDP port', 'bad');
+      resolve(false);
+    }, 5000);
+
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) {
+        gathered = true;
+        clearTimeout(timeout);
+        pc.close();
+        const label = { host: 'Local routes (host)', srflx: 'Public routes (srflx)', relay: 'Relay routes', tcp: 'TCP fallback routes', other: 'Other routes' };
+        const rows = Object.entries(c).map(([k, v]) => {
+          let tone = 'pass';
+          if ((k === 'srflx' || k === 'relay') && v === 0) tone = 'warn';
+          if (k === 'host' && v === 0) tone = 'fail';
+          if (k === 'other') tone = '';
+          return [label[k], v + (v === 1 ? ' found' : ' found'), tone];
+        });
+        const status = c.host > 0 ? (c.srflx > 0 ? 'pass' : 'warn') : 'fail';
+        metrics.iceCandidates = { host: c.host, srflx: c.srflx, relay: c.relay, tcp: c.tcp, other: c.other, status };
+        updateTestUI('ice-candidates', status, tbl(rows) + (status === 'pass' ? '' :
+          note('warn', 'No public route was discovered', '<p>Your device found local routes but could not learn its public address. Calls will have to fall back to a relay server, which adds latency and sometimes fails outright.</p>')));
+        addTimeline('Routes found — local ' + c.host + ' · public ' + c.srflx + ' · relay ' + c.relay, status === 'pass' ? 'good' : 'warn');
+        resolve(status !== 'fail');
+        return;
+      }
+      const parts = e.candidate.candidate.split(' ');
+      const type = parts[7] || 'other';
+      if (c[type] !== undefined) c[type]++; else c.other++;
+      if (e.candidate.candidate.includes('tcp')) c.tcp++;
+    };
+
+    pc.createDataChannel('probe');
+    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => {
+      clearTimeout(timeout);
+      pc.close();
+      updateTestUI('ice-candidates', 'fail', tbl([['Result', 'Could not create an offer — WebRTC is disabled', 'fail']]));
+      resolve(false);
+    });
+  });
+}
+
+/* ============================================================
+   3 · UDP connectivity
+   ============================================================ */
+async function testUDPSocket() {
+  updateTestUI('udp-socket', 'running');
+  const servers = CONFIG.stunServers;
+  if (!servers.length) {
+    updateTestUI('udp-socket', 'warn', tbl([['Result', 'No STUN server configured — skipped', 'warn']]) +
+      note('warn', 'UDP reachability needs a STUN server', '<p>No STUN server is set in Advanced settings, so this check cannot run. If this device has no internet access, ask your IT team for an internal STUN/TURN address and enter it there.</p>'));
+    addTimeline('UDP reachability skipped — no STUN server configured', 'warn');
+    return true;
+  }
+  const out = [];
+  for (const server of servers) {
+    const start = performance.now();
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:' + server }] });
+      const r = await new Promise(resolve => {
+        const t = setTimeout(() => { try { pc.close(); } catch (e) {} resolve({ ok: false, reason: 'no answer in 3 s' }); }, 3000);
+        pc.onicecandidate = (e) => {
+          if (e.candidate && e.candidate.candidate.includes('srflx')) {
+            clearTimeout(t);
+            const ms = (performance.now() - start).toFixed(0);
+            pc.close();
+            resolve({ ok: true, time: ms });
+          }
+        };
+        pc.createDataChannel('udp-test');
+        pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => resolve({ ok: false, reason: 'offer failed' }));
+      });
+      out.push(Object.assign({ server }, r));
+    } catch (e) {
+      out.push({ server, ok: false, reason: e.message });
+    }
+  }
+  const anyOk = out.some(r => r.ok);
+  metrics.udpReachability = out.map(r => ({ server: r.server, ok: r.ok, timeMs: r.ok ? +r.time : null, reason: r.reason || null }));
+  const rows = out.map(r => [r.server, r.ok ? 'Reached in ' + r.time + ' ms' : 'Unreachable — ' + r.reason, r.ok ? 'pass' : 'fail']);
+  updateTestUI('udp-socket', anyOk ? 'pass' : 'fail', tbl(rows) + (anyOk ? '' :
+    note('bad', 'The browser cannot send or receive UDP', '<p>Every probe failed. On a corporate network this normally means outbound UDP is blocked and all calls must use a TCP relay.</p>')));
+  addTimeline('UDP reachable via ' + out.filter(r => r.ok).length + ' of ' + out.length + ' servers', anyOk ? 'good' : 'bad');
+  return anyOk;
+}
+
+/* ============================================================
+   4 · Packet loss
+   Why it matters: a handshake certificate message is 2–4 KB and gets split
+   into several UDP packets, while a route probe is ~20 bytes. Routes can
+   succeed while the handshake quietly dies.
+   ============================================================ */
+async function testPacketLoss() {
+  updateTestUI('packet-loss', 'running');
+
+  const servers = CONFIG.stunServers;
+  if (!servers.length) {
+    updateTestUI('packet-loss', 'warn', tbl([['Result', 'No STUN server configured — skipped', 'warn']]) +
+      note('warn', 'Packet loss needs a STUN server', '<p>No STUN server is set in Advanced settings, so this check cannot run. If this device has no internet access, ask your IT team for an internal STUN/TURN address and enter it there.</p>'));
+    addTimeline('Packet loss measurement skipped — no STUN server configured', 'warn');
+    return true;
+  }
+  addTimeline('Measuring packet loss (' + servers.length + ' server' + (servers.length === 1 ? '' : 's') + ' × 10 round trips)…', 'bloom');
+
+  const ATTEMPTS = 10;
+  const trials = [];
+  const pairStats = [];
+
+  for (const server of servers) {
+    for (let i = 0; i < ATTEMPTS; i++) {
+      const start = performance.now();
+      let ok = false, timeMs = -1;
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:' + server }] });
+        ok = await new Promise(resolve => {
+          const t = setTimeout(() => { try { pc.close(); } catch (e) {} resolve(false); }, 2500);
+          pc.onicecandidate = (e) => {
+            if (e.candidate && e.candidate.candidate.includes('srflx')) { clearTimeout(t); pc.close(); resolve(true); }
+          };
+          pc.createDataChannel('loss-test');
+          pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => resolve(false));
+        });
+        if (ok) {
+          timeMs = +(performance.now() - start).toFixed(0);
+          try {
+            const stats = await pc.getStats();
+            stats.forEach(r => {
+              if (r.type === 'candidate-pair' && r.remoteCandidateId) {
+                pairStats.push({ requestsSent: r.requestsSent, responsesReceived: r.responsesReceived });
+              }
+            });
+          } catch (e) {}
+        }
+      } catch (e) {}
+      trials.push({ server, ok, timeMs });
+    }
+  }
+
+  const total = trials.length;
+  const okCount = trials.filter(t => t.ok).length;
+  const loss = total ? (1 - okCount / total) : 1;
+  const times = trials.filter(t => t.ok).map(t => t.timeMs);
+  const spread = times.length ? Math.min.apply(null, times) + '–' + Math.max.apply(null, times) + ' ms' : 'n/a';
+
+  const byServer = {};
+  trials.forEach(t => {
+    byServer[t.server] = byServer[t.server] || { ok: 0, total: 0 };
+    byServer[t.server].total++;
+    if (t.ok) byServer[t.server].ok++;
+  });
+
+  let iceLoss = null;
+  const sent = pairStats.reduce((a, s) => a + (s.requestsSent || 0), 0);
+  const recv = pairStats.reduce((a, s) => a + (s.responsesReceived || 0), 0);
+  if (sent > 0) iceLoss = (1 - recv / sent) * 100;
+
+  const tone = loss > 0.1 ? 'fail' : loss > 0.02 ? 'warn' : 'pass';
+
+  metrics.packetLoss = {
+    totalProbes: total,
+    successful: okCount,
+    lossPercent: +(loss * 100).toFixed(1),
+    rtt: times.length ? { minMs: Math.min.apply(null, times), maxMs: Math.max.apply(null, times) } : null,
+    iceStatsLossPercent: iceLoss !== null ? +iceLoss.toFixed(1) : null,
+    perServer: Object.fromEntries(Object.entries(byServer).map(([s, v]) => [s, {
+      successful: v.ok,
+      total: v.total,
+      lossPercent: +((1 - v.ok / v.total) * 100).toFixed(1),
+    }])),
+    tone,
+  };
+
+  const rows = [
+    ['Probes sent', total + ' (' + servers.length + ' servers × ' + ATTEMPTS + ')', ''],
+    ['Succeeded', okCount + ' / ' + total, tone],
+    ['Loss rate', (loss * 100).toFixed(1) + '%', tone],
+    ['Round-trip spread', spread, ''],
+  ];
+  if (iceLoss !== null) rows.push(['Loss reported by ICE stats', iceLoss.toFixed(1) + '%', '']);
+  Object.entries(byServer).forEach(([s, v]) => {
+    const l = (1 - v.ok / v.total) * 100;
+    rows.push([s, v.ok + '/' + v.total + ' succeeded · ' + l.toFixed(1) + '% lost', l > 10 ? 'fail' : l > 2 ? 'warn' : 'pass']);
+  });
+
+  let status = 'pass', extra;
+  if (loss > 0.3) {
+    status = 'fail';
+    extra = note('bad', 'Loss of ' + (loss * 100).toFixed(1) + '% — severe', '<p>At this rate the certificate message sent during a handshake (2–4 KB, split across several UDP packets) is almost certain to be lost. Small route probes get through, large handshake packets do not — which is exactly the failure pattern being investigated.</p>');
+  } else if (loss > 0.1) {
+    status = 'fail';
+    extra = note('bad', 'Loss of ' + (loss * 100).toFixed(1) + '% — too high for a reliable handshake', '<p>A handshake needs several round trips of large messages. Above 10% loss it rarely completes before retransmissions run out. Check the VPN tunnel, Wi-Fi signal strength and link congestion, and enable a TCP relay as a fallback.</p>');
+  } else if (loss > 0.02) {
+    status = 'warn';
+    extra = note('warn', 'Loss of ' + (loss * 100).toFixed(1) + '% — slightly high', '<p>Handshakes will be slower because of retransmissions but should still complete. Worth watching if calls occasionally time out.</p>');
+  } else {
+    extra = note('good', 'The UDP path is healthy', '<p>Large handshake messages should get through. If calls still fail, the cause is more likely traffic inspection, packet fragmentation or the signaling path than raw network quality.</p>');
+  }
+
+  updateTestUI('packet-loss', status, tbl(rows) + extra);
+  addTimeline('Packet loss measured: ' + (loss * 100).toFixed(1) + '% (' + okCount + '/' + total + ')', status === 'pass' ? 'good' : status === 'warn' ? 'warn' : 'bad');
+  return loss <= 0.1;
+}
+
+/* ============================================================
+   5 · Local handshake test (loopback) — the key check
+   ============================================================ */
+async function testDTLSLocal() {
+  updateTestUI('dtls-local', 'running');
+  addTimeline('Running a local secure handshake…', 'bloom');
+
+  return new Promise(resolve => {
+    const startTime = performance.now();
+    const events = [];
+
+    try {
+      loopbackPC1 = new RTCPeerConnection({ iceServers: [] });
+      loopbackPC2 = new RTCPeerConnection({ iceServers: [] });
+      addRTCErrorListener(loopbackPC1, 'local A');
+      addRTCErrorListener(loopbackPC2, 'local B');
+    } catch (e) {
+      updateTestUI('dtls-local', 'fail', tbl([['Result', 'Could not create a connection: ' + esc(e.message), 'fail']]));
+      addTimeline('Local handshake: could not create a connection', 'bad');
+      resolve(false);
+      return;
+    }
+
+    const log = (side, msg) => {
+      events.push([(performance.now() - startTime).toFixed(0) + ' ms', side, msg]);
+    };
+
+    const dc1 = loopbackPC1.createDataChannel('dtls-test');
+    dc1.onopen = () => log('A', 'Data channel open — handshake succeeded');
+    dc1.onerror = (e) => log('A', 'Data channel error: ' + (e.error?.message || 'unknown'));
+    loopbackPC2.ondatachannel = (e) => {
+      log('B', 'Data channel received');
+      e.channel.onopen = () => log('B', 'Data channel open');
+    };
+    loopbackPC2.onconnectionstatechange = () => log('B', 'Connection state: ' + loopbackPC2.connectionState);
+    loopbackPC1.oniceconnectionstatechange = () => log('A', 'Route state: ' + loopbackPC1.iceConnectionState);
+
+    const eventTable = () => '<div style="font-size:13px;font-weight:600;color:var(--g500);letter-spacing:.02em">Step by step</div>'
+      + tbl3(events.map(e => [e[0], e[1] === 'A' ? 'This device' : 'Loopback peer', e[2], '']));
+
+    const timeout = setTimeout(async () => {
+      const elapsed = (performance.now() - startTime).toFixed(0);
+      const rows = [['Result', 'Handshake did not finish within ' + elapsed + ' ms', 'fail']];
+      const dtlsData = { status: 'fail', elapsedMs: +elapsed, state: null, tlsVersion: null, dtlsCipher: null, srtpCipher: null,
+        steps: events.map(e => ({ tMs: +e[0].replace(' ms', ''), side: e[1], msg: e[2] })) };
+      try {
+        const s1 = await loopbackPC1.getStats();
+        s1.forEach(r => {
+          if (r.type !== 'transport') return;
+          rows.push(['Handshake state', r.dtlsState + ' · ' + (r.tlsVersion || 'version n/a'), 'fail']);
+          dtlsData.state = r.dtlsState || null;
+          dtlsData.tlsVersion = r.tlsVersion || null;
+          dtlsData.dtlsCipher = r.dtlsCipher || null;
+          dtlsData.srtpCipher = r.srtpCipher || null;
+        });
+      } catch (e) {}
+      metrics.dtlsLocal = dtlsData;
+      try { loopbackPC1.close(); loopbackPC2.close(); } catch (e) {}
+      updateTestUI('dtls-local', 'fail', tbl(rows) + eventTable() +
+        note('bad', 'The browser itself cannot complete a secure handshake', '<p>This rules the network out — the problem is on this device:</p><ul>'
+          + '<li>A managed-browser policy may be blocking the secure handshake</li>'
+          + '<li>An installed extension may be interfering with calling APIs</li>'
+          + '<li>The browser version may have a defect — try updating it</li></ul>'));
+      addTimeline('Local secure handshake timed out', 'bad');
+      resolve(false);
+    }, 8000);
+
+    let resolved = false;
+    loopbackPC1.onconnectionstatechange = () => {
+      log('A', 'Connection state: ' + loopbackPC1.connectionState);
+      if (loopbackPC1.connectionState !== 'connected' || resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
+      setTimeout(async () => {
+        const elapsed = (performance.now() - startTime).toFixed(0);
+        const rows = [['Result', 'Completed in ' + elapsed + ' ms', 'pass']];
+        const dtlsData = { status: 'pass', elapsedMs: +elapsed, state: null, tlsVersion: null, dtlsCipher: null, srtpCipher: null,
+          steps: events.map(e => ({ tMs: +e[0].replace(' ms', ''), side: e[1], msg: e[2] })) };
+        try {
+          const s1 = await loopbackPC1.getStats();
+          s1.forEach(r => {
+            if (r.type !== 'transport') return;
+            rows.push(['Handshake state', r.dtlsState, 'pass']);
+            rows.push(['Protocol version', (r.tlsVersion || 'n/a') + ' (FEFC = DTLS 1.2)', '']);
+            rows.push(['Cipher suite', r.dtlsCipher || 'n/a', 'mono']);
+            rows.push(['Media cipher', r.srtpCipher || 'n/a', 'mono']);
+            dtlsData.state = r.dtlsState || null;
+            dtlsData.tlsVersion = r.tlsVersion || null;
+            dtlsData.dtlsCipher = r.dtlsCipher || null;
+            dtlsData.srtpCipher = r.srtpCipher || null;
+          });
+        } catch (e) {}
+        metrics.dtlsLocal = dtlsData;
+        try { loopbackPC1.close(); loopbackPC2.close(); } catch (e) {}
+        updateTestUI('dtls-local', 'pass', tbl(rows) + eventTable() +
+          note('good', 'The browser itself can complete a secure handshake', '<p>So if real calls still fail, the problem is on the path between this device and our servers — a tunnel, a firewall, packet fragmentation, or traffic inspection — not the browser.</p>'));
+        addTimeline('Local secure handshake completed in ' + elapsed + ' ms', 'good');
+        resolve(true);
+      }, 300);
+    };
+
+    loopbackPC1.createOffer()
+      .then(offer => { log('A', 'Offer created'); return loopbackPC1.setLocalDescription(offer); })
+      .then(() => loopbackPC2.setRemoteDescription(loopbackPC1.localDescription))
+      .then(() => { log('B', 'Offer accepted'); return loopbackPC2.createAnswer(); })
+      .then(answer => { log('B', 'Answer created'); return loopbackPC2.setLocalDescription(answer); })
+      .then(() => new Promise(done => {
+        let aDone = false, bDone = false;
+        loopbackPC1.onicecandidate = (e) => {
+          if (e.candidate) loopbackPC2.addIceCandidate(e.candidate); else aDone = true;
+          if (aDone && bDone) done();
+        };
+        loopbackPC2.onicecandidate = (e) => {
+          if (e.candidate) loopbackPC1.addIceCandidate(e.candidate); else bDone = true;
+          if (aDone && bDone) done();
+        };
+        setTimeout(done, 3000);
+      }))
+      .then(() => { log('A', 'Routes exchanged'); return loopbackPC1.setRemoteDescription(loopbackPC2.localDescription); })
+      .then(() => log('A', 'Secure handshake started'))
+      .catch(err => {
+        clearTimeout(timeout);
+        updateTestUI('dtls-local', 'fail', tbl([['Result', 'Could not set up the connection: ' + esc(err.message), 'fail']]));
+        resolve(false);
+      });
+  });
+}
+
+/* ============================================================
+   6 · Packet size limit (MTU) — two tracks
+   A browser cannot craft raw UDP packets, so it cannot measure IP
+   fragmentation the way `ping -M do` can. Track A (data channel) is
+   indicative only; track B (a real relay allocation) tests the live path.
+   ============================================================ */
+async function testMTUProbe() {
+  updateTestUI('mtu-probe', 'running');
+  addTimeline('Probing packet size limits…', 'bloom');
+
+  const sctp = await runSCTPMTUTest();
+  const turn = await runTURNTest();
+
+  metrics.mtu = {
+    maxDeliveredBytes: sctp.maxOk,
+    perSize: Object.fromEntries(Object.entries(sctp.results).map(([size, r]) => [size, {
+      ok: r.ok, timeMs: r.ok ? +r.time : null, reason: r.reason || null,
+    }])),
+    turn: turn === null ? null : {
+      ok: !!turn.ok,
+      timeMs: turn.ok ? +turn.time : null,
+      reason: turn.reason || null,
+    },
+    turnConfigured: turn !== null,
+  };
+
+  const rows = [['Largest message delivered', sctp.maxOk.toLocaleString() + ' bytes (indicative only)', 'warn']];
+  Object.entries(sctp.results).forEach(([size, r]) => {
+    rows.push([(+size).toLocaleString() + ' bytes', r.ok ? 'Delivered in ' + r.time + ' ms' : 'Not delivered — ' + r.reason, r.ok ? 'pass' : 'warn']);
+  });
+  if (turn) rows.splice(1, 0, ['Relay allocation', turn.ok ? 'Allocated in ' + turn.time + ' ms' : 'Failed — ' + turn.reason, turn.ok ? 'pass' : 'fail']);
+  else rows.splice(1, 0, ['Relay allocation', 'Not configured', 'warn']);
+
+  let extra = note('warn', 'A browser cannot measure this exactly',
+    '<p>Data channels retransmit on their own, so the number above does not reflect what happens to the 2–4 KB certificate message during a real handshake. Confirming a fragmentation black hole needs a capture on the server side:</p>'
+    + '<pre># from a host that can reach the client\'s public IP\nping -M do -s 1400 &lt;client public IP&gt;   # raise -s until packets stop arriving\ntcpdump -i any \'udp and (ip[6:2] &amp; 0x2000 != 0)\'   # fragments with the DF flag</pre>');
+
+  if (turn && !turn.ok) {
+    extra += note('bad', 'The relay path is unreachable (' + esc(turn.reason) + ')',
+      '<p>A relay is the escape route when a direct connection fails. If production depends on it, this failure means a call drops entirely once the direct path is blocked.</p>');
+  }
+
+  updateTestUI('mtu-probe', turn && !turn.ok ? 'fail' : 'warn', tbl(rows) + extra);
+  addTimeline('Packet size probe finished — result is indicative only', 'warn');
+  return turn ? turn.ok : true;
+}
+
+function runSCTPMTUTest() {
+  return new Promise(resolve => {
+    const pc1 = new RTCPeerConnection({ iceServers: [] });
+    const pc2 = new RTCPeerConnection({ iceServers: [] });
+    const sizes = [500, 1000, 1500, 2000, 4000, 8000, 16000, 32000, 64000];
+    const results = {};
+    let i = 0;
+
+    const finish = () => {
+      try { pc1.close(); pc2.close(); } catch (e) {}
+      const ok = Object.entries(results).filter(([, r]) => r.ok).map(([s]) => parseInt(s, 10));
+      resolve({ maxOk: ok.length ? Math.max.apply(null, ok) : 0, results });
+    };
+    const timeout = setTimeout(finish, 12000);
+
+    const dc = pc1.createDataChannel('mtu-test', { ordered: true });
+    dc.onopen = () => next();
+
+    function next() {
+      if (i >= sizes.length) { clearTimeout(timeout); finish(); return; }
+      const size = sizes[i];
+      const payload = new Uint8Array(size);
+      for (let k = 0; k < size; k++) payload[k] = k % 256;
+      const start = performance.now();
+      try {
+        dc.send(payload);
+        results[size] = { ok: true, time: (performance.now() - start).toFixed(0) };
+      } catch (e) {
+        results[size] = { ok: false, reason: e.message };
+      }
+      i++;
+      setTimeout(next, 150);
+    }
+
+    pc2.ondatachannel = (e) => { e.channel.onmessage = () => {}; };
+    pc1.createOffer().then(o => pc1.setLocalDescription(o))
+      .then(() => pc2.setRemoteDescription(pc1.localDescription))
+      .then(() => pc2.createAnswer()).then(a => pc2.setLocalDescription(a))
+      .then(() => {
+        pc1.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); };
+        pc2.onicecandidate = (e) => { if (e.candidate) pc1.addIceCandidate(e.candidate); };
+        setTimeout(() => pc1.setRemoteDescription(pc2.localDescription), 1200);
+      })
+      .catch(() => { clearTimeout(timeout); finish(); });
+  });
+}
+
+function runTURNTest() {
+  const url = CONFIG.turnServer;
+  if (!url || !CONFIG.useTurn) return Promise.resolve(null);
+  addTimeline('Testing the relay server you provided…', 'bloom');
+
+  return new Promise(resolve => {
+    const start = performance.now();
+    let pc;
+    try {
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: /^turns?:/.test(url) ? url : 'turn:' + url }],
+        iceTransportPolicy: 'relay',
+      });
+    } catch (e) {
+      resolve({ ok: false, reason: 'could not create a connection: ' + e.message });
+      return;
+    }
+    const t = setTimeout(() => {
+      try { pc.close(); } catch (e) {}
+      resolve({ ok: false, reason: 'no allocation within 8 s' });
+    }, 8000);
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate && e.candidate.candidate.includes('relay')) {
+        clearTimeout(t);
+        const ms = (performance.now() - start).toFixed(0);
+        try { pc.close(); } catch (err) {}
+        resolve({ ok: true, time: ms });
+      }
+    };
+    pc.onicecandidateerror = (e) => {
+      clearTimeout(t);
+      try { pc.close(); } catch (err) {}
+      resolve({ ok: false, reason: 'error ' + e.errorCode + ' ' + (e.errorText || '') });
+    };
+    pc.createDataChannel('turn-test');
+    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(e => {
+      clearTimeout(t);
+      try { pc.close(); } catch (err) {}
+      resolve({ ok: false, reason: 'offer failed: ' + e.message });
+    });
+  });
+}
+
+/* ============================================================
+   7 · Protocol version & cipher
+   ============================================================ */
+async function testTLSVersion() {
+  updateTestUI('tls-version', 'running');
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  const pc2 = new RTCPeerConnection({ iceServers: [] });
+
+  return new Promise(resolve => {
+    setTimeout(async () => {
+      const rows = [];
+      const tlsData = { state: null, tlsVersion: null, dtlsCipher: null, srtpCipher: null };
+      try {
+        const stats = await pc.getStats();
+        stats.forEach(r => {
+          if (r.type !== 'transport') return;
+          rows.push(['Handshake state', r.dtlsState || 'n/a', r.dtlsState === 'connected' ? 'pass' : 'warn']);
+          rows.push(['Protocol version', (r.tlsVersion || 'n/a') + '  (FEFD = DTLS 1.0 · FEFC = DTLS 1.2)', '']);
+          rows.push(['Cipher suite', r.dtlsCipher || 'n/a', 'mono']);
+          rows.push(['Media cipher', r.srtpCipher || 'n/a', 'mono']);
+          tlsData.state = r.dtlsState || null;
+          tlsData.tlsVersion = r.tlsVersion || null;
+          tlsData.dtlsCipher = r.dtlsCipher || null;
+          tlsData.srtpCipher = r.srtpCipher || null;
+        });
+      } catch (e) {}
+      metrics.tlsVersion = tlsData;
+      try { pc.close(); pc2.close(); } catch (e) {}
+      const ok = rows.some(r => r[1] === 'connected');
+      updateTestUI('tls-version', ok ? 'pass' : 'warn',
+        (rows.length ? tbl(rows) : tbl([['Result', 'Version details unavailable — the handshake did not finish', 'warn']]))
+        + (ok ? '' : note('warn', 'Nothing to report yet', '<p>Version and cipher details only become readable once a handshake completes. If the local handshake test above also failed, start there.</p>')));
+      addTimeline('Protocol version check ' + (ok ? 'complete' : 'inconclusive'), ok ? 'good' : 'warn');
+      resolve(true);
+    }, 4000);
+
+    pc.createDataChannel('tls-check');
+    pc.createOffer().then(o => pc.setLocalDescription(o))
+      .then(() => pc2.setRemoteDescription(pc.localDescription))
+      .then(() => pc2.createAnswer()).then(a => pc2.setLocalDescription(a))
+      .then(() => {
+        pc.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); };
+        pc2.onicecandidate = (e) => { if (e.candidate) pc.addIceCandidate(e.candidate); };
+        setTimeout(() => pc.setRemoteDescription(pc2.localDescription), 1500);
+      }).catch(() => {});
+  });
+}
+
+/* ============================================================
+   8 · Browser capabilities
+   ============================================================ */
+async function testPolicyCheck() {
+  updateTestUI('policy-check', 'running');
+  const rows = [];
+  const ua = navigator.userAgent;
+  const managed = ua.includes('Island') || ua.includes('IslandBrowser');
+
+  try { const pc = new RTCPeerConnection(); rows.push(['Calling enabled', 'Yes', 'pass']); pc.close(); }
+  catch (e) { rows.push(['Calling enabled', 'No — ' + esc(e.message.substring(0, 60)), 'fail']); }
+
+  try {
+    if (navigator.mediaDevices?.enumerateDevices) {
+      const d = await navigator.mediaDevices.enumerateDevices();
+      rows.push(['Device list', d.length + ' devices (video ' + (d.some(x => x.kind === 'videoinput') ? 'yes' : 'no') + ' · audio ' + (d.some(x => x.kind === 'audioinput') ? 'yes' : 'no') + ')', 'pass']);
+    } else rows.push(['Device list', 'API unavailable', 'fail']);
+  } catch (e) { rows.push(['Device list', esc(e.message.substring(0, 60)), 'warn']); }
+
+  try { const pc = new RTCPeerConnection(); rows.push(['Data channels', pc.createDataChannel('t') ? 'Supported' : 'Not supported', 'pass']); pc.close(); }
+  catch (e) { rows.push(['Data channels', 'Not supported', 'fail']); }
+
+  try { localStorage.setItem('__dtls_probe__', '1'); localStorage.removeItem('__dtls_probe__'); rows.push(['Local storage', 'Working', 'pass']); }
+  catch (e) { rows.push(['Local storage', 'Blocked by policy', 'fail']); }
+
+  rows.push(['Service workers', ('serviceWorker' in navigator) ? 'Supported' : 'Not supported', ('serviceWorker' in navigator) ? 'pass' : 'warn']);
+  rows.push(['Window', window !== window.top ? 'Embedded in a frame — cross-origin limits may apply' : 'Top-level', window !== window.top ? 'warn' : 'pass']);
+  rows.push(['Browser', managed ? 'Managed enterprise browser' : ua.includes('Edg/') ? 'Microsoft Edge' : ua.includes('Chrome') ? 'Chrome' : (navigator.userAgentData?.brands?.[0]?.brand || 'Unknown'), managed ? 'warn' : 'pass']);
+  rows.push(['Extension inspection API', (typeof chrome !== 'undefined' && chrome.management) ? 'Available' : 'Unavailable — extensions detected by probe instead', (typeof chrome !== 'undefined' && chrome.management) ? 'pass' : 'warn']);
+
+  const anyFail = rows.some(r => r[2] === 'fail');
+  metrics.policy = {
+    managed,
+    embedded: window !== window.top,
+    checks: rows.map(r => ({ name: r[0], value: String(r[1]).replace(/<[^>]+>/g, ''), tone: r[2] || null })),
+  };
+  let extra = '';
+  if (managed) {
+    extra += note('warn', 'This is a managed enterprise browser', '<p>Policies worth checking with your IT team:</p><ul>'
+      + '<li><code>ExtensionInstallForcelist</code> — enforced extensions can inspect encrypted call traffic</li>'
+      + '<li><code>URLBlocklist</code> — may block the browser\'s own diagnostic pages</li>'
+      + '<li><code>AudioCaptureAllowedUrls</code> / <code>VideoCaptureAllowedUrls</code> — camera and mic allow-list</li></ul>');
+  }
+  extra += note('info', 'Full policy checklist for IT', '<ul>'
+    + '<li><code>WebRtcUdpPortRange</code> — narrows the usable UDP port range</li>'
+    + '<li><code>SSLVersionMin</code> / <code>SSLVersionMax</code> — can disable protocol versions</li>'
+    + '<li><code>ExtensionInstallForcelist</code> — enforced security, DLP or network extensions</li>'
+    + '<li>Proxy policy — can force call traffic onto TCP</li>'
+    + '<li>Certificate and CA policy — can interfere with handshake certificate validation</li></ul>');
+
+  updateTestUI('policy-check', anyFail ? 'fail' : managed ? 'warn' : 'pass', tbl(rows) + extra);
+  addTimeline('Browser capability check complete' + (managed ? ' — managed browser detected' : ''), managed ? 'warn' : 'good');
+  return !anyFail;
+}
+
+/* ============================================================
+   9 · Forced browser extensions
+   ============================================================ */
+async function testExtensionAudit() {
+  updateTestUI('extension-audit', 'running');
+  addTimeline('Looking for enforced browser extensions…', 'bloom');
+
+  const KNOWN = {
+    'pbgclfkmlfkllfbpdjpkndahdbjcgbmk': { name: 'Enterprise security engine', risk: 'critical', note: 'Security, DLP and network filtering. Can inspect TLS traffic, which breaks a call\'s one-time certificate.' },
+    'eecadmlnhempdpkmbjmnnocghkbkmelm': { name: 'Enforced extension (purpose not published)', risk: 'high', note: 'Installed by policy; function not documented.' },
+    'gniobnbbehpgbcamkdplghfimhocklgb': { name: 'Enforced extension (purpose not published)', risk: 'high', note: 'Installed by policy; function not documented.' },
+    'gmbmikajjgmnabiglmofipeabaddhgne': { name: 'Enforced extension (purpose not published)', risk: 'high', note: 'Installed by policy; function not documented.' },
+    'mdfhopdeebgomoojheclcglbphdpfeoo': { name: 'Allow-listed extension', risk: 'medium', note: 'Permitted by enterprise policy.' },
+    'idgadaccgipmpannjkmfddolnnhmeklj': { name: 'Allow-listed extension', risk: 'medium', note: 'Permitted by enterprise policy.' },
+    'chngjgginikejcpaejphfoglpppmjfne': { name: 'Allow-listed extension', risk: 'medium', note: 'Permitted by enterprise policy.' },
+    'ghbmnnjooekpmoecnnnilnnbdlolhkhi': { name: 'Google Docs Offline', risk: 'low', note: 'Official Google extension — no impact on calls.' },
+  };
+
+  const findings = [];
+  let critical = 0;
+
+  if (typeof chrome !== 'undefined' && chrome.management?.getAll) {
+    try {
+      const exts = await new Promise((res, rej) => chrome.management.getAll(list => chrome.runtime.lastError ? rej(chrome.runtime.lastError) : res(list)));
+      exts.forEach(ext => {
+        const k = KNOWN[ext.id];
+        if (ext.installType !== 'admin' && !(k && (k.risk === 'critical' || k.risk === 'high'))) return;
+        findings.push({
+          name: (k && k.name) || ext.name,
+          risk: (k && k.risk) || 'unknown',
+          note: (k && k.note) || 'Installed by your administrator; purpose not documented.',
+          removable: ext.mayDisable,
+        });
+        if (k && (k.risk === 'critical' || k.risk === 'high')) critical++;
+      });
+    } catch (e) {
+      findings.push({ name: 'Extension list unavailable', risk: 'unknown', note: 'The browser did not allow this page to read the extension list.' });
+    }
+  }
+
+  if (findings.length === 0) {
+    addTimeline('Extension list not readable — probing known extension resources instead', 'muted');
+    for (const [id, info] of Object.entries(KNOWN)) {
+      if (info.risk === 'low') continue;
+      try {
+        if (await probeExtension(id)) {
+          findings.push({ name: info.name, risk: info.risk, note: info.note + ' Confirmed by resource probe.', removable: false });
+          if (info.risk === 'critical' || info.risk === 'high') critical++;
+        }
+      } catch (e) {}
+    }
+  }
+
+  const RISK = { critical: 'fail', high: 'fail', medium: 'warn', low: 'pass', unknown: 'warn' };
+  const status = critical > 0 ? 'fail' : findings.length > 0 ? 'warn' : 'pass';
+  metrics.extensions = { detected: findings.length, criticalRiskCount: critical, list: findings.map(f => ({ name: f.name, risk: f.risk, note: f.note, removable: f.removable ?? null })) };
+  const rows = findings.length
+    ? findings.map(f => [f.name, f.note + (f.removable === false ? ' Cannot be removed by you.' : ''), RISK[f.risk]])
+    : [['Enforced extensions', 'None of the known high-risk extensions were detected', 'pass']];
+
+  let extra;
+  if (critical > 0) {
+    extra = note('bad', critical + (critical === 1 ? ' enforced extension can break a call before it starts' : ' enforced extensions can break a call before it starts'),
+      '<p>A security or data-loss-prevention extension that inspects TLS will replace the one-time certificate a call generates. The browser then rejects the connection silently — which looks exactly like the failure being investigated.</p>'
+      + '<ul><li>Ask IT for a temporary policy group without these extensions</li><li>Run this page again on the same device and compare</li><li>If the checks turn green, add the extensions back one at a time to find the culprit</li></ul>');
+  } else if (findings.length > 0) {
+    extra = note('warn', 'Enforced extensions are present', '<p>Not conclusive on its own, but enterprise extensions are a common source of handshake failures — especially anything that inspects TLS traffic.</p>');
+  } else {
+    extra = note('good', 'No high-risk extensions detected', '<p>The cause is more likely in the network path — a tunnel, firewall or packet fragmentation — than in the browser.</p>');
+  }
+
+  updateTestUI('extension-audit', status, tbl(rows) + extra);
+  addTimeline('Extension audit: ' + findings.length + ' found · ' + critical + ' high risk', critical ? 'bad' : findings.length ? 'warn' : 'good');
+  return critical === 0;
+}
+
+function probeExtension(extId) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const t = setTimeout(() => { img.src = ''; resolve(false); }, 1500);
+    img.onload = () => { clearTimeout(t); resolve(true); };
+    img.onerror = () => { clearTimeout(t); resolve(false); };
+    img.src = 'chrome-extension://' + extId + '/icon.png';
+  });
+}
+
+/* ============================================================
+   10 · Camera & microphone access
+   ============================================================ */
+async function testMediaPermission() {
+  updateTestUI('media-permission', 'running');
+  const host = location.hostname;
+  const rows = [['Current domain', host || 'local file', '']];
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const labelled = devices.some(d => d.label && d.label.length > 0);
+    rows.push(['Device names visible', labelled ? 'Yes — media access already granted' : 'No — not yet granted, or limited by policy', labelled ? 'pass' : 'warn']);
+  } catch (e) {
+    rows.push(['Device names visible', esc(e.message.substring(0, 60)), 'fail']);
+  }
+
+  try {
+    if (navigator.permissions?.query) {
+      const cam = await navigator.permissions.query({ name: 'camera' });
+      const mic = await navigator.permissions.query({ name: 'microphone' });
+      const tone = s => s === 'denied' ? 'fail' : s === 'prompt' ? 'warn' : 'pass';
+      rows.push(['Camera permission', cam.state, tone(cam.state)]);
+      rows.push(['Microphone permission', mic.state, tone(mic.state)]);
+    } else {
+      rows.push(['Permissions API', 'Unavailable in this browser', 'warn']);
+    }
+  } catch (e) {
+    rows.push(['Permission query', esc(e.message.substring(0, 60)), 'warn']);
+  }
+
+  const ALLOWED = ['zoom.us', 'intuit.com', 'awsapps.com'];
+  const matched = ALLOWED.filter(d => host.includes(d));
+  rows.push(['Company media allow-list', matched.length ? 'Matches ' + matched.join(', ') : 'This domain is not on the known allow-list', matched.length ? 'pass' : 'warn']);
+
+  const anyFail = rows.some(r => r[2] === 'fail');
+  metrics.mediaPermission = {
+    hostname: host,
+    domainAllowlisted: matched.length > 0,
+    allowlistMatches: matched,
+    entries: rows.map(r => ({ name: r[0], value: String(r[1]), tone: r[2] || null })),
+  };
+  const extra = matched.length ? '' : note('warn', 'This domain is not on your company media allow-list',
+    '<p>Managed-browser policy (<code>AudioCaptureAllowedUrls</code>, <code>VideoCaptureAllowedUrls</code>) limits camera and microphone to a fixed list of domains. It does not break the secure handshake, but camera and mic will stay off on pages outside that list.</p>');
+
+  updateTestUI('media-permission', anyFail ? 'fail' : matched.length ? 'pass' : 'warn', tbl(rows) + extra);
+  addTimeline('Media permission check complete for ' + (host || 'local file'), anyFail ? 'bad' : matched.length ? 'good' : 'warn');
+  return !anyFail;
+}
+
+/* ============================================================
+   11 · Enterprise policy impact
+   ============================================================ */
+async function testEnterprisePolicy() {
+  updateTestUI('enterprise-policy', 'running');
+  const ua = navigator.userAgent;
+  const managed = ua.includes('Island') || ua.includes('IslandBrowser');
+
+  const rows = [
+    ['This page loads', 'Yes — ordinary web pages are not blocked', 'pass'],
+    ['Browser diagnostic pages', 'Cannot be tested from a web page; commonly blocked by policy', 'warn'],
+    ['Developer tools', 'Cannot be tested from a web page; commonly disabled by policy', 'warn'],
+    ['User agent', managed ? 'Overridden by enterprise policy' : 'Default', managed ? 'warn' : 'pass'],
+  ];
+
+  const impacts = [
+    ['ExtensionInstallForcelist', 'Installs a security engine and further enforced extensions', 'Direct — TLS inspection can break the handshake', 'fail'],
+    ['URLBlocklist', 'Blocks the browser\'s own WebRTC and network diagnostic pages', 'Indirect — you cannot self-diagnose', 'warn'],
+    ['DefaultDeveloperToolsSetting = 0', 'Disables developer tools', 'Indirect — no console or network panel', 'warn'],
+    ['AudioCaptureAllowedUrls', 'Microphone limited to listed domains', 'Indirect — no audio outside the list', 'warn'],
+    ['VideoCaptureAllowedUrls', 'Camera limited to listed domains', 'Indirect — no video outside the list', 'warn'],
+    ['NetworkPredictionOptions = 2', 'Disables network prediction', 'None', 'pass'],
+    ['DnsOverHttpsTemplates = ""', 'Disables DNS over HTTPS', 'None', 'pass'],
+    ['UserAgentBrandNameForDomains', 'Overrides the browser brand for certain domains', 'Low — may confuse server-side detection', 'warn'],
+  ];
+
+  metrics.enterprisePolicy = {
+    managed,
+    checks: rows.map(r => ({ name: r[0], value: String(r[1]), tone: r[2] || null })),
+    impacts: impacts.map(p => ({ name: p[0], effect: p[1], impact: p[2], tone: p[3] })),
+  };
+
+  const detail = tbl(rows)
+    + '<div style="font-size:13px;font-weight:600;color:var(--g500);letter-spacing:.02em">How common managed-browser policies affect calls</div>'
+    + tbl3(impacts.map(p => ['<code>' + p[0] + '</code>', p[1], p[2], p[3]]))
+    + note('bad', 'Traffic inspection is the leading suspect',
+      '<p>Every call generates its own short-lived certificate, signed by nobody. A security extension that inspects TLS replaces it, the other side fails validation, and the connection is dropped without an error the user can see. That matches the pattern of routes connecting but the call never starting.</p>'
+      + '<ul><li>Ask IT for a test policy group without the enforced security extension</li><li>Compare call success on the same device, same network</li></ul>');
+
+  updateTestUI('enterprise-policy', 'warn', detail);
+  addTimeline('Enterprise policy analysis complete', 'warn');
+  return true;
+}
+
+/* ============================================================
+   12 · Network type
+   ============================================================ */
+async function testNetworkType() {
+  updateTestUI('network-type', 'running');
+  const stunList = CONFIG.stunServers;
+  if (!stunList.length) {
+    updateTestUI('network-type', 'warn', tbl([['Result', 'No STUN server configured — skipped', 'warn']]) +
+      note('warn', 'Network-type detection needs a STUN server', '<p>No STUN server is set in Advanced settings, so this check cannot run. If this device has no internet access, ask your IT team for an internal STUN/TURN address and enter it there.</p>'));
+    addTimeline('Network-type detection skipped — no STUN server configured', 'warn');
+    return true;
+  }
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:' + stunList[0] }] });
+  const found = { host: [], srflx: [], relay: [] };
+
+  return new Promise(resolve => {
+    setTimeout(() => {
+      try { pc.close(); } catch (e) {}
+      const hostIPs = found.host.map(c => c.address);
+      const pubIPs = found.srflx.map(c => c.address);
+      const isPrivate = ip => /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || ip === '127.0.0.1' || ip.includes(':');
+      const publicHost = hostIPs.some(ip => !isPrivate(ip));
+
+      let type = 'Could not determine', tone = 'warn', extra = '';
+      if (publicHost) {
+        type = 'Public address on the device — likely a VPN or a direct connection';
+        extra = note('warn', 'A VPN or tunnel may be in the path',
+          '<p>Tunnels often carry a smaller packet size than the standard 1500 bytes, which can truncate the large certificate message sent during a handshake. If you can, run this test once with the VPN disconnected and compare the results.</p>');
+      } else if (found.srflx.length > 0) {
+        type = 'Behind NAT with public reachability — typical home or office network';
+        tone = 'pass';
+      } else if (found.host.length > 0) {
+        type = 'Restricted network — UDP to the internet appears blocked';
+        extra = note('bad', 'UDP cannot reach the internet',
+          '<p>A direct call path will not work here. Calls must use a TCP relay, and if none is configured they will fail. This is usually a corporate firewall rule.</p>');
+      }
+
+      const rows = [
+        ['Detected type', type, tone],
+        ['Local address', hostIPs.join(', ') || 'none', ''],
+        ['Public address', pubIPs.join(', ') || 'none discovered', pubIPs.length ? '' : 'warn'],
+        ['Local routes', String(found.host.length), ''],
+        ['Public routes', String(found.srflx.length), ''],
+      ];
+      metrics.networkType = {
+        type,
+        localAddresses: hostIPs,
+        publicAddresses: pubIPs,
+        vpnSuspected: publicHost,
+        hostRouteCount: found.host.length,
+        srflxRouteCount: found.srflx.length,
+        relayRouteCount: found.relay.length,
+      };
+      updateTestUI('network-type', found.srflx.length > 0 && !publicHost ? 'pass' : 'warn', tbl(rows) + extra);
+      addTimeline('Network type: ' + type, tone === 'pass' ? 'good' : 'warn');
+      resolve(true);
+    }, 4000);
+
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) return;
+      const p = e.candidate.candidate.split(' ');
+      if (found[p[7]]) found[p[7]].push({ address: p[4], port: p[5] });
+    };
+    pc.createDataChannel('net-type');
+    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => {});
+  });
+}
+
+/* ============================================================
+   13 · Certificate fingerprint
+   ============================================================ */
+async function testCertFingerprint() {
+  updateTestUI('cert-fingerprint', 'running');
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  const pc2 = new RTCPeerConnection({ iceServers: [] });
+
+  return new Promise(resolve => {
+    setTimeout(async () => {
+      const rows = [];
+      const certData = { algorithm: null, fingerprint: null };
+      try {
+        const stats = await pc.getStats();
+        stats.forEach(r => {
+          if (r.type !== 'certificate') return;
+          rows.push(['Algorithm', r.fingerprintAlgorithm || 'n/a', r.fingerprintAlgorithm ? 'pass' : 'warn']);
+          rows.push(['Fingerprint', r.fingerprint || 'n/a', 'mono']);
+          certData.algorithm = r.fingerprintAlgorithm || null;
+          certData.fingerprint = r.fingerprint || null;
+        });
+      } catch (e) {}
+      metrics.certificate = certData;
+      try { pc.close(); pc2.close(); } catch (e) {}
+      const ok = rows.length > 0;
+      updateTestUI('cert-fingerprint', ok ? 'pass' : 'warn',
+        (ok ? tbl(rows) : tbl([['Result', 'Certificate details are only readable after a handshake completes', 'warn']]))
+        + note('info', 'Why this matters', '<p>This fingerprint is announced in the call setup message. If anything on the path rewrites that message, or replaces the certificate, the two sides disagree and the handshake fails immediately.</p>'));
+      addTimeline('Certificate fingerprint ' + (ok ? 'verified' : 'not readable'), ok ? 'good' : 'warn');
+      resolve(true);
+    }, 3500);
+
+    pc.createDataChannel('cert-test');
+    pc.createOffer().then(o => pc.setLocalDescription(o))
+      .then(() => pc2.setRemoteDescription(pc.localDescription))
+      .then(() => pc2.createAnswer()).then(a => pc2.setLocalDescription(a))
+      .then(() => {
+        pc.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); };
+        pc2.onicecandidate = (e) => { if (e.candidate) pc.addIceCandidate(e.candidate); };
+        setTimeout(() => pc.setRemoteDescription(pc2.localDescription), 1200);
+      }).catch(() => {});
+  });
+}
+
+/* ============================================================
+   14 · Handshake timing
+   ============================================================ */
+async function testConnectionSpeed() {
+  updateTestUI('connection-speed', 'running');
+  return new Promise(resolve => {
+    const t0 = performance.now();
+    const pc1 = new RTCPeerConnection({ iceServers: [] });
+    const pc2 = new RTCPeerConnection({ iceServers: [] });
+    const marks = {};
+    const mark = name => { marks[name] = (performance.now() - t0).toFixed(0); };
+
+    const timeout = setTimeout(() => {
+      try { pc1.close(); pc2.close(); } catch (e) {}
+      updateTestUI('connection-speed', 'warn',
+        tbl(Object.entries(marks).map(([k, v]) => [k, v + ' ms', ''])) +
+        note('warn', 'The connection did not finish in time', '<p>A local connection should complete in well under a second. Taking longer points at the browser itself — policy, an extension, or an old version.</p>'));
+      resolve(false);
+    }, 8000);
+
+    mark('Started');
+    pc1.onconnectionstatechange = () => {
+      mark('State: ' + pc1.connectionState);
+      if (pc1.connectionState !== 'connected') return;
+      clearTimeout(timeout);
+      setTimeout(() => {
+        try { pc1.close(); pc2.close(); } catch (e) {}
+        const total = parseInt(marks['State: connected'] || '0', 10);
+        metrics.connectionSpeed = { totalMs: total, marks: Object.fromEntries(Object.entries(marks).map(([k, v]) => [k, +v])) };
+        const rows = [['Total', total + ' ms', total < 500 ? 'pass' : 'warn']]
+          .concat(Object.entries(marks).map(([k, v]) => [k, v + ' ms', '']));
+        updateTestUI('connection-speed', total < 500 ? 'pass' : 'warn', tbl(rows) +
+          (total > 1000
+            ? note('bad', 'A local connection should not take this long', '<p>Over a second on a loopback connection means something on this device is slowing the handshake down — policy, an extension, or an outdated browser.</p>')
+            : note('good', 'Local handshake timing is normal', '<p>Use this as the baseline. Any extra delay on a real call is network latency and retransmission.</p>')));
+        addTimeline('Local connection completed in ' + total + ' ms', total < 500 ? 'good' : 'warn');
+        resolve(true);
+      }, 400);
+    };
+
+    const dc = pc1.createDataChannel('speed-test');
+    dc.onopen = () => mark('Data channel open');
+
+    pc1.createOffer().then(o => { mark('Offer created'); return pc1.setLocalDescription(o); })
+      .then(() => pc2.setRemoteDescription(pc1.localDescription))
+      .then(() => pc2.createAnswer()).then(a => { mark('Answer created'); return pc2.setLocalDescription(a); })
+      .then(() => {
+        pc1.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); };
+        pc2.onicecandidate = (e) => { if (e.candidate) pc1.addIceCandidate(e.candidate); };
+        setTimeout(() => { pc1.setRemoteDescription(pc2.localDescription); mark('Routes exchanged'); }, 1000);
+      }).catch(() => {});
+  });
+}
+
+/* ============================================================
+   15 · Root-cause summary
+   ============================================================ */
+async function testDTLSFailureAnalysis() {
+  updateTestUI('dtls-failure-analysis', 'running');
+  addTimeline('Working out the most likely cause…', 'bloom');
+
+  const st = id => results[id]?.status || 'pending';
+  const dtlsErrors = lastRTCErrors.filter(e =>
+    e.errorDetail === 'dtls-failure' || e.errorDetail === 'fingerprint-failure' || e.receivedAlert !== null);
+
+  const hypotheses = [];
+  const certAlerts = dtlsErrors.filter(e => [42, 46, 48, 51].includes(e.receivedAlert));
+
+  if (certAlerts.length) {
+    hypotheses.push({ rank: 1, tone: 'fail', title: 'Encrypted traffic is being inspected or altered',
+      evidence: 'Alert ' + certAlerts[0].receivedAlert + ' — ' + decodeDTLSAlert(certAlerts[0].receivedAlert),
+      action: 'This is the classic signature of a security extension or appliance inspecting TLS. Ask IT for a test policy group without enforced security extensions and compare.' });
+  } else if (st('extension-audit') === 'fail') {
+    hypotheses.push({ rank: 1, tone: 'fail', title: 'An enforced extension is inspecting call traffic',
+      evidence: 'High-risk enforced extensions detected; the browser may be dropping the connection without sending an alert',
+      action: 'Ask IT to reproduce on a policy group with no enforced extensions, then add them back one at a time.' });
+  }
+
+  if (st('network-type') === 'warn' || st('mtu-probe') === 'fail') {
+    hypotheses.push({ rank: hypotheses.length ? 2 : 1, tone: 'warn', title: 'A tunnel is truncating large handshake messages',
+      evidence: 'A VPN or corporate tunnel was detected in the path',
+      action: 'Run this page again with the VPN disconnected. If it passes, the tunnel packet size is the cause — a shorter server certificate chain also helps.' });
+  }
+
+  if (st('packet-loss') === 'fail') {
+    hypotheses.push({ rank: 1, tone: 'fail', title: 'Packet loss is too high for a handshake to complete',
+      evidence: 'Loss measured above the level a handshake can survive',
+      action: 'Small route probes get through while large handshake packets do not. Improve the link, or enable a TCP relay as a fallback.' });
+  } else if (st('packet-loss') === 'pass') {
+    hypotheses.push({ rank: 5, tone: 'pass', title: 'Network quality is not the cause',
+      evidence: 'Loss measured at a healthy level across 30 round trips',
+      action: 'No action needed on the network path itself.' });
+  }
+
+  if (dtlsErrors.some(e => e.errorDetail === 'fingerprint-failure')) {
+    hypotheses.push({ rank: 1, tone: 'fail', title: 'Call setup messages are being rewritten',
+      evidence: 'Fingerprint mismatch reported by the browser',
+      action: 'Check that the signaling service forwards call setup messages unchanged, and compare the fingerprint on both sides.' });
+  }
+
+  if (st('dtls-local') === 'fail' && st('packet-loss') !== 'fail') {
+    hypotheses.push({ rank: 1, tone: 'fail', title: 'The browser itself cannot complete a handshake',
+      evidence: 'The local test failed while the network measured clean',
+      action: 'Update the browser, retry in a private window with extensions off, and review managed-browser policy.' });
+  } else if (st('dtls-local') === 'pass') {
+    hypotheses.push({ rank: 6, tone: 'pass', title: 'The browser is not the cause',
+      evidence: 'A complete handshake succeeded locally on this device',
+      action: 'No action needed on the browser itself.' });
+  }
+
+  const sorted = hypotheses.sort((a, b) => a.rank - b.rank);
+  const LABEL = ['Most likely', 'Possible', 'Possible', 'Less likely', 'Unlikely', 'Unlikely', 'Unlikely'];
+
+  metrics.hypotheses = sorted.map((h, i) => ({
+    rank: i + 1,
+    likelihood: LABEL[i] || 'Unlikely',
+    title: h.title,
+    evidence: h.evidence,
+    action: h.action,
+    tone: h.tone,
+  }));
+
+  let detail = '';
+  if (lastRTCErrors.length) {
+    detail += '<div style="font-size:13px;font-weight:600;color:var(--g500);letter-spacing:.02em">Errors reported by the browser</div>'
+      + tbl3(lastRTCErrors.map(e => [e.time + ' · ' + e.label, e.errorDetail,
+        e.receivedAlert !== null ? e.receivedAlert + ' — ' + e.receivedAlertText : 'no alert code',
+        e.receivedAlert !== null ? 'fail' : 'warn']));
+  }
+
+  detail += '<div style="font-size:13px;font-weight:600;color:var(--g500);letter-spacing:.02em">Ranked causes</div>'
+    + tbl3(sorted.map((h, i) => [(i + 1) + ' · ' + (LABEL[i] || 'Unlikely'), h.title, h.action, h.tone === 'fail' ? 'fail' : h.tone === 'warn' ? 'warn' : 'pass']));
+
+  const overall = dtlsErrors.length ? 'fail'
+    : st('packet-loss') === 'fail' ? 'fail'
+    : st('extension-audit') === 'fail' ? 'fail'
+    : st('dtls-local') === 'fail' ? 'fail'
+    : (st('network-type') === 'warn' || st('media-permission') === 'warn') ? 'warn' : 'pass';
+
+  metrics.overall = overall;
+  metrics.dtlsErrorsSeen = dtlsErrors.length;
+
+  if (overall === 'pass') {
+    detail += note('good', 'Nothing on this device is blocking a call',
+      '<p>Every local check passed. If calls still fail from here, the next steps are on our side:</p>'
+      + '<ul><li>Send us this report so we can compare it with a working device</li><li>We will capture packets server-side to see where the handshake stops</li></ul>');
+  } else {
+    detail += note('bad', 'Send this report to your IT team',
+      '<p>Download the report from the top of this page and pass it on with the ranked causes above. The fastest confirmation is to change one thing — extensions, or the VPN — and run this page again on the same device.</p>');
+  }
+
+  updateTestUI('dtls-failure-analysis', overall, detail);
+  addTimeline('Analysis complete — ' + sorted.length + ' candidate causes ranked', overall === 'pass' ? 'good' : 'bad');
+  return overall !== 'fail';
+}
+
+/* ============================================================
+   Run everything
+   ============================================================ */
+async function runAllTests() {
+  const btn = document.getElementById('btnRunAll');
+  btn.disabled = true;
+  btn.classList.add('spinning');
+  document.getElementById('runLabel').textContent = 'Running…';
+  runStart = performance.now();
+  Object.keys(results).forEach(k => delete results[k]);
+  Object.keys(metrics).forEach(k => delete metrics[k]);
+  lastRTCErrors = [];
+
+  document.getElementById('steps').hidden = true;
+  document.getElementById('heroTitle').textContent = 'Checking this device';
+  document.getElementById('heroBody').textContent = 'Results appear below as each check finishes. Anything green needs no action — open a red or amber row to see what was measured and what to do about it.';
+  setVerdict('running', 'loader-circle', 'Running checks — keep this tab open',
+    'Some checks send repeated probes and take up to 20 seconds each.', null);
+  addTimeline('Starting all checks', 'bloom');
+
+  const order = [
+    testWebRTCAPI, testICECandidates, testUDPSocket, testPacketLoss,
+    testPolicyCheck, testEnterprisePolicy, testExtensionAudit, testMediaPermission,
+    testNetworkType, testTLSVersion, testCertFingerprint, testDTLSLocal,
+    testMTUProbe, testConnectionSpeed, testDTLSFailureAnalysis,
+  ];
+  for (const t of order) {
+    try { await t(); } catch (e) { addTimeline('A check failed unexpectedly: ' + e.message, 'bad'); }
+    await new Promise(r => setTimeout(r, 250));
+  }
+
+  btn.disabled = false;
+  btn.classList.remove('spinning');
+  document.getElementById('runLabel').textContent = 'Run again';
+  finalVerdict();
+  addTimeline('All checks finished · report ready to download', 'bloom');
+}
+
+function finalVerdict() {
+  const vals = Object.values(results);
+  const n = s => vals.filter(r => r.status === s).length;
+  const pass = n('pass'), warn = n('warn'), fail = n('fail');
+  const localOk = results['dtls-local']?.status === 'pass';
+  const netOk = results['packet-loss']?.status === 'pass';
+
+  let tone, icon, title, body, next;
+  if (fail === 0 && warn === 0) {
+    tone = 'pass'; icon = 'shield-check';
+    title = 'Everything passed on this device';
+    body = 'All ' + pass + ' checks completed cleanly, including packet loss and the local secure handshake.';
+    next = { title: 'Send us the report anyway', body: 'If calls still fail from this device, download the report and send it to us — it gives our team a clean baseline to compare against.' };
+  } else if (fail === 0) {
+    tone = 'warn'; icon = 'shield-alert';
+    title = warn + (warn === 1 ? ' check needs attention' : ' checks need attention');
+    body = 'Nothing failed outright, but ' + warn + (warn === 1 ? ' result is' : ' results are') + ' worth a look — open the amber rows below to see what was measured.';
+    next = { title: 'What to do next', body: 'Download the report and send it to whoever asked you to run this. If a VPN was flagged, running the page again with the VPN disconnected is the single most useful comparison.' };
+  } else if (localOk && netOk) {
+    tone = 'fail'; icon = 'shield-alert';
+    title = 'Your network is fine — something on this device is blocking the call';
+    body = pass + ' checks passed, including packet loss and the local secure handshake. ' + fail + (fail === 1 ? ' check failed' : ' checks failed') + ', pointing at software on this device rather than the network.';
+    next = { title: 'What to do next', body: 'Download the report and send it to your IT team. Ask for a temporary policy group without enforced security extensions, then run this page again on the same device.' };
+  } else {
+    tone = 'fail'; icon = 'shield-alert';
+    title = fail + (fail === 1 ? ' check failed on this device' : ' checks failed on this device');
+    body = 'Open the red rows below — each one states what was measured and what to do about it. The ranked summary at the bottom names the most likely cause.';
+    next = { title: 'What to do next', body: 'Download the report and send it to your IT team along with the ranked causes at the bottom of this page.' };
+  }
+  setVerdict(tone, icon, title, body, next);
+  metrics.verdict = { tone, title, body, next };
+  document.getElementById('heroTitle').textContent = fail === 0 && warn === 0
+    ? 'This device is ready for calls'
+    : fail > 0 ? (fail === 1 ? 'One check failed on this device' : fail + ' checks failed on this device')
+    : 'Everything works, with ' + warn + ' thing' + (warn === 1 ? '' : 's') + ' to look at';
+}
+
+/* ============================================================
+   Report export — Markdown
+   ============================================================ */
+function mdCell(s) { return String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim(); }
+function toneSymbol(t) { return t === 'pass' ? '✓ pass' : t === 'warn' ? '⚠ attention' : t === 'fail' ? '✗ fail' : '—'; }
+function overallLabel(t) { return t === 'pass' ? 'PASS' : t === 'warn' ? 'ATTENTION' : t === 'fail' ? 'FAIL' : 'UNKNOWN'; }
+function dtlsVersionLabel(v) {
+  if (!v) return 'n/a';
+  const map = { FEFF: 'DTLS 1.0', FEFD: 'DTLS 1.2', FEFC: 'DTLS 1.3' };
+  return map[v] ? v + ' (' + map[v] + ')' : v;
+}
+function browserLabel() {
+  const ua = navigator.userAgent;
+  if (ua.includes('Island') || ua.includes('IslandBrowser')) return 'Managed browser (Island)';
+  if (ua.includes('Edg/')) return 'Microsoft Edge';
+  if (ua.includes('Chrome')) return 'Chrome';
+  if (ua.includes('Firefox')) return 'Firefox';
+  if (ua.includes('Safari')) return 'Safari';
+  return 'Unknown';
+}
+
+function buildMarkdownReport() {
+  const M = metrics;
+  const V = M.verdict || {};
+  const lines = [];
+  const push = (s = '') => lines.push(s);
+  const H2 = t => { push('## ' + t); push(''); };
+  const H3 = t => { push('### ' + t); push(''); };
+  const HR = () => { push('---'); push(''); };
+  const table = (headers, rows) => {
+    push('| ' + headers.join(' | ') + ' |');
+    push('| ' + headers.map(() => '---').join(' | ') + ' |');
+    rows.forEach(r => push('| ' + r.map(mdCell).join(' | ') + ' |'));
+    push('');
+  };
+
+  const durationS = runStart ? Math.round((performance.now() - runStart) / 1000) : 0;
+  const passCount = Object.values(results).filter(r => r.status === 'pass').length;
+  const warnCount = Object.values(results).filter(r => r.status === 'warn').length;
+  const failCount = Object.values(results).filter(r => r.status === 'fail').length;
+  const uaVer = (navigator.userAgent.match(/(?:Chrome|Firefox|Version)\/(\d+)/) || [])[1] || '';
+
+  push('# Connection Diagnostics Report');
+  push('');
+  push('WebRTC / DTLS · read-only checks generated by WebFastTry.');
+  push('');
+  push('| | |');
+  push('| --- | --- |');
+  push('| **Generated** | ' + new Date().toISOString() + ' |');
+  push('| **Duration** | ' + durationS + ' s |');
+  push('| **Page URL** | ' + mdCell(location.href) + ' |');
+  push('| **Domain** | ' + mdCell(location.hostname || 'local file') + ' |');
+  push('| **Browser** | ' + browserLabel() + (uaVer ? ' ' + uaVer : '') + ' |');
+  push('| **Platform** | ' + mdCell(navigator.platform || 'unknown') + ' |');
+  push('| **Hardware** | ' + (navigator.hardwareConcurrency || '?') + ' cores · ' + (navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'memory n/a') + ' |');
+  push('| **User agent** | `' + mdCell(navigator.userAgent) + '` |');
+  push('');
+  HR();
+
+  /* ---------- Verdict ---------- */
+  H2('Verdict');
+  push('**' + overallLabel(V.tone) + ' — ' + mdCell(V.title || 'Diagnostics did not finish') + '**');
+  push('');
+  if (V.body) { push(mdCell(V.body)); push(''); }
+  table(['Result', 'Count'], [
+    ['Passed', passCount],
+    ['Needs attention', warnCount],
+    ['Failed', failCount],
+    ['**Total**', '**' + TOTAL + '**'],
+  ]);
+  if (V.next) {
+    H3('Next action');
+    push('**' + mdCell(V.next.title || '') + '** — ' + mdCell(V.next.body || ''));
+    push('');
+  }
+  HR();
+
+  /* ---------- Ranked causes ---------- */
+  if (M.hypotheses && M.hypotheses.length) {
+    H2('Ranked causes');
+    push('The most likely explanations, ranked by the evidence collected.');
+    push('');
+    table(
+      ['#', 'Likelihood', 'Hypothesis', 'Evidence', 'Recommended action'],
+      M.hypotheses.map(h => [h.rank, h.likelihood, h.title, h.evidence, h.action])
+    );
+    HR();
+  }
+
+  /* ---------- DTLS handshake ---------- */
+  H2('DTLS handshake');
+
+  if (M.dtlsLocal) {
+    H3('Local loopback handshake');
+    table(['Field', 'Value'], [
+      ['Status', toneSymbol(M.dtlsLocal.status)],
+      ['Elapsed', M.dtlsLocal.elapsedMs + ' ms'],
+      ['Final DTLS state', M.dtlsLocal.state ?? 'n/a'],
+      ['TLS version', dtlsVersionLabel(M.dtlsLocal.tlsVersion)],
+      ['DTLS cipher', '`' + (M.dtlsLocal.dtlsCipher ?? 'n/a') + '`'],
+      ['SRTP cipher', '`' + (M.dtlsLocal.srtpCipher ?? 'n/a') + '`'],
+    ]);
+    if (M.dtlsLocal.steps && M.dtlsLocal.steps.length) {
+      push('**Step-by-step timeline (loopback):**');
+      push('');
+      table(['t (ms)', 'Side', 'Event'],
+        M.dtlsLocal.steps.map(s => [s.tMs, s.side === 'A' ? 'This device' : 'Loopback peer', s.msg]));
+    }
+  }
+
+  if (M.tlsVersion && (M.tlsVersion.state || M.tlsVersion.dtlsCipher)) {
+    H3('TLS negotiation snapshot');
+    table(['Field', 'Value'], [
+      ['DTLS state', M.tlsVersion.state ?? 'n/a'],
+      ['TLS version', dtlsVersionLabel(M.tlsVersion.tlsVersion)],
+      ['DTLS cipher', '`' + (M.tlsVersion.dtlsCipher ?? 'n/a') + '`'],
+      ['SRTP cipher', '`' + (M.tlsVersion.srtpCipher ?? 'n/a') + '`'],
+    ]);
+  }
+
+  if (M.certificate && (M.certificate.algorithm || M.certificate.fingerprint)) {
+    H3('Local certificate fingerprint');
+    table(['Field', 'Value'], [
+      ['Algorithm', M.certificate.algorithm ?? 'n/a'],
+      ['Fingerprint', '`' + (M.certificate.fingerprint ?? 'n/a') + '`'],
+    ]);
+    push('_The fingerprint must appear unchanged on the other side. If it does not, something on the path is rewriting the call setup message._');
+    push('');
+  }
+
+  H3('RTCError / DTLS alert events');
+  if (lastRTCErrors.length) {
+    table(
+      ['Time', 'Peer', 'Error detail', 'Alert code', 'Meaning', 'SCTP cause', 'Message'],
+      lastRTCErrors.map(e => [
+        e.time,
+        e.label,
+        e.errorDetail,
+        e.receivedAlert ?? '—',
+        e.receivedAlertText || '—',
+        e.sctpCauseCode ?? '—',
+        e.message || '—',
+      ])
+    );
+  } else {
+    push('_No RTCError events were captured during this run._');
+    push('');
+  }
+
+  if (M.connectionSpeed) {
+    H3('Handshake timing (loopback)');
+    const rows = Object.entries(M.connectionSpeed.marks).map(([k, v]) => [k, v + ' ms']);
+    rows.push(['**Total**', '**' + M.connectionSpeed.totalMs + ' ms**']);
+    table(['Mark', 't (ms from start)'], rows);
+  }
+
+  HR();
+
+  /* ---------- Network path ---------- */
+  H2('Network path');
+
+  if (M.iceCandidates) {
+    H3('ICE candidates discovered');
+    table(['Route type', 'Count'], [
+      ['Local (host)', M.iceCandidates.host],
+      ['Public reflexive (srflx)', M.iceCandidates.srflx],
+      ['Relay', M.iceCandidates.relay],
+      ['TCP fallback', M.iceCandidates.tcp],
+      ['Other', M.iceCandidates.other],
+    ]);
+  }
+
+  if (M.networkType) {
+    H3('Network type');
+    table(['Field', 'Value'], [
+      ['Detected type', M.networkType.type],
+      ['Local addresses', M.networkType.localAddresses.join(', ') || '—'],
+      ['Public addresses (STUN)', M.networkType.publicAddresses.join(', ') || '—'],
+      ['VPN / tunnel suspected', M.networkType.vpnSuspected ? 'Yes — public IP on device interface' : 'No'],
+      ['Host routes', M.networkType.hostRouteCount],
+      ['srflx routes', M.networkType.srflxRouteCount],
+      ['Relay routes', M.networkType.relayRouteCount],
+    ]);
+  }
+
+  if (M.packetLoss) {
+    H3('Packet loss');
+    const rows = [
+      ['Loss rate', M.packetLoss.lossPercent + '%'],
+      ['Successful probes', M.packetLoss.successful + ' / ' + M.packetLoss.totalProbes],
+    ];
+    if (M.packetLoss.rtt) rows.push(['RTT spread', M.packetLoss.rtt.minMs + '–' + M.packetLoss.rtt.maxMs + ' ms']);
+    if (M.packetLoss.iceStatsLossPercent !== null) rows.push(['ICE stats loss (STUN pairs)', M.packetLoss.iceStatsLossPercent + '%']);
+    table(['Metric', 'Value'], rows);
+    push('**Per-server breakdown:**');
+    push('');
+    table(['Server', 'Successful', 'Loss'],
+      Object.entries(M.packetLoss.perServer).map(([s, v]) => [s, v.successful + '/' + v.total, v.lossPercent + '%']));
+  }
+
+  if (M.udpReachability && M.udpReachability.length) {
+    H3('UDP reachability probes');
+    table(['Server', 'Result', 'Time'],
+      M.udpReachability.map(r => [r.server, r.ok ? '✓ reached' : '✗ ' + (r.reason || 'unreachable'), r.timeMs !== null ? r.timeMs + ' ms' : '—']));
+  }
+
+  if (M.mtu) {
+    H3('MTU / large-message probe');
+    push('_Data channels retransmit on their own — the numbers below are indicative only, not a measurement of the raw UDP path. To confirm a fragmentation black hole, capture on the server side (see instructions in the UI)._');
+    push('');
+    table(['Message size (bytes)', 'Result', 'Time'],
+      Object.entries(M.mtu.perSize).map(([size, r]) => [
+        (+size).toLocaleString(),
+        r.ok ? '✓ delivered' : '✗ ' + (r.reason || 'not delivered'),
+        r.timeMs !== null ? r.timeMs + ' ms' : '—',
+      ]));
+    push('**Largest delivered:** ' + M.mtu.maxDeliveredBytes.toLocaleString() + ' bytes');
+    push('');
+    if (M.mtu.turnConfigured && M.mtu.turn) {
+      push('**TURN relay allocation:** ' + (M.mtu.turn.ok ? '✓ allocated in ' + M.mtu.turn.timeMs + ' ms' : '✗ failed — ' + M.mtu.turn.reason));
+    } else {
+      push('**TURN relay allocation:** not configured');
+    }
+    push('');
+  }
+
+  HR();
+
+  /* ---------- Browser & policy ---------- */
+  H2('Browser & policy');
+
+  if (M.webrtcApi) {
+    H3('WebRTC API surface');
+    table(['API', 'Status'],
+      Object.entries(M.webrtcApi.checks).map(([k, v]) => [k, v ? '✓ available' : '✗ missing']));
+  }
+
+  if (M.policy) {
+    H3('Browser capability & policy signals');
+    table(['Check', 'Value', 'Status'],
+      M.policy.checks.map(c => [c.name, c.value, toneSymbol(c.tone || '')]));
+  }
+
+  if (M.mediaPermission) {
+    H3('Camera & microphone');
+    table(['Check', 'Value', 'Status'],
+      M.mediaPermission.entries.map(c => [c.name, c.value, toneSymbol(c.tone || '')]));
+  }
+
+  if (M.extensions) {
+    H3('Enforced extensions');
+    push('**Detected:** ' + M.extensions.detected + ' · **Critical/high risk:** ' + M.extensions.criticalRiskCount);
+    push('');
+    if (M.extensions.list.length) {
+      table(['Name', 'Risk', 'Removable', 'Note'],
+        M.extensions.list.map(f => [f.name, f.risk, f.removable === false ? 'No' : f.removable === true ? 'Yes' : '—', f.note]));
+    } else {
+      push('_No high-risk extensions detected._');
+      push('');
+    }
+  }
+
+  if (M.enterprisePolicy) {
+    H3('Enterprise policy impact analysis');
+    if (M.enterprisePolicy.managed) {
+      push('_Managed enterprise browser detected._');
+      push('');
+    }
+    if (M.enterprisePolicy.checks && M.enterprisePolicy.checks.length) {
+      table(['Check', 'Value', 'Status'],
+        M.enterprisePolicy.checks.map(c => [c.name, c.value, toneSymbol(c.tone || '')]));
+    }
+    if (M.enterprisePolicy.impacts && M.enterprisePolicy.impacts.length) {
+      push('**How common managed-browser policies affect calls:**');
+      push('');
+      table(['Policy', 'Effect', 'Impact on calls'],
+        M.enterprisePolicy.impacts.map(p => ['`' + p.name + '`', p.effect, p.impact]));
+    }
+  }
+
+  HR();
+
+  /* ---------- Per-check status roll-up ---------- */
+  H2('Per-check status');
+  const flat = GROUPS.flatMap(g => g.tests.map(t => [g.title, t[1], results[t[0]]?.status || 'pending']));
+  table(['Group', 'Check', 'Status'], flat.map(f => [f[0], f[1], toneSymbol(f[2])]));
+  HR();
+
+  /* ---------- Activity log ---------- */
+  H2('Activity log');
+  push('```');
+  timeline.forEach(t => {
+    const tag = (t.tone || 'muted').padEnd(6);
+    push(t.time + '  [' + tag + ']  ' + t.msg);
+  });
+  push('```');
+  push('');
+  HR();
+  push('_WebFastTry connection diagnostics · Markdown report v2_');
+
+  return lines.join('\n');
+}
+
+function exportResults() {
+  const markdown = buildMarkdownReport();
+  const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'connection-diagnostics-' + stamp + '.md';
+  a.click();
+  URL.revokeObjectURL(url);
+  addTimeline('Report downloaded (Markdown)', 'bloom');
+}
+
+/* ============================================================
+   Boot
+   ============================================================ */
+renderGroups();
+renderEnv();
+icons();
+
+addTimeline('Diagnostics page loaded', 'muted');
+addTimeline('Browser: ' + navigator.userAgent.substring(0, 72) + '…', 'muted');
+addTimeline('Network: ' + (navigator.onLine ? 'online' : 'offline') + ' · '
+  + (navigator.hardwareConcurrency || '?') + ' CPU cores'
+  + (navigator.deviceMemory ? ' · ' + navigator.deviceMemory + ' GB memory' : ''), 'muted');
+addTimeline('Domain: ' + (location.hostname || 'local file'), 'muted');
+
+if (navigator.userAgent.includes('Island') || navigator.userAgent.includes('IslandBrowser')) {
+  addTimeline('Managed enterprise browser detected — policy may affect calls', 'warn');
+}
+if (typeof chrome !== 'undefined' && chrome.management) {
+  addTimeline('Extension list is readable — enforced extensions can be identified', 'good');
+} else {
+  addTimeline('Extension list is not readable — extensions will be detected by probe', 'muted');
+}
+if (!(navigator.permissions && navigator.permissions.query)) {
+  addTimeline('Permissions API unavailable — camera and mic status cannot be read', 'warn');
+}
+</script>
+</body>
+</html>
